@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
-from app.routers import jobs, generate
+from app.routers import arrange, jobs, generate
 
 
 @asynccontextmanager
@@ -23,6 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(arrange.router)
 app.include_router(jobs.router)
 app.include_router(generate.router)
 
