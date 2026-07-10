@@ -1,20 +1,7 @@
-import os
-import tempfile
-
 from httpx import ASGITransport, AsyncClient
 import pytest
 
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-
-from app.db import init_db, drop_db
 from app.main import app
-
-
-@pytest.fixture(autouse=True)
-def setup_db():
-    init_db()
-    yield
-    drop_db()
 
 
 @pytest.mark.asyncio
