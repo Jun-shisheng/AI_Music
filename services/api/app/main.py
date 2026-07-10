@@ -10,7 +10,10 @@ from app.routers import arrange, jobs, generate
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     init_db()
+    from app.services.queue import start_worker, stop_worker
+    await start_worker()
     yield
+    await stop_worker()
 
 
 app = FastAPI(title="AI Music API", version="0.1.0", lifespan=lifespan)
