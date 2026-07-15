@@ -4,6 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License MIT">
+  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome">
   <img src="https://img.shields.io/badge/python-3.11%20%7C%203.13-blue" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/GPU-NVIDIA%208GB%2B-orange" alt="NVIDIA GPU 8GB+">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey" alt="Windows | Linux">
