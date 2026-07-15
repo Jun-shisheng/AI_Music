@@ -1,22 +1,18 @@
 """ACE-Step 1.5 runner interface.
 
-Supports multiple backends:
-- subprocess: call ACE-Step CLI directly (simplest, no code dependency)
-- api: call ACE-Step's built-in REST API server
-- import: import ACE-Step pipeline as a library (tightest integration)
-
-Set ACESTEP_BACKEND env var to choose: subprocess (default), api, or import.
+Supports:
+- api: call ACE-Step's REST API server (recommended)
+- subprocess: call ACE-Step CLI via uv run (one-shot, no server needed)
 """
 
-import os
-import subprocess
 import json
-import tempfile
+import asyncio
 from pathlib import Path
 
 from app.config import settings
 
-BACKEND = os.getenv("ACESTEP_BACKEND", "subprocess")
+BACKEND = settings.acestep_backend
+ACESTEP_DIR = settings.acestep_dir
 
 
 def _ensure_output_dir():
@@ -35,8 +31,6 @@ async def generate(
         return await _generate_subprocess(lyrics, style_prompt, output_path, instrumental)
     elif BACKEND == "api":
         return await _generate_api(lyrics, style_prompt, output_path, instrumental)
-    elif BACKEND == "import":
-        return await _generate_import(lyrics, style_prompt, output_path, instrumental)
     else:
         raise ValueError(f"Unknown ACESTEP_BACKEND: {BACKEND}")
 
@@ -47,26 +41,64 @@ async def _generate_subprocess(
     output_path: str,
     instrumental: bool,
 ) -> Path:
-    """Call ACE-Step via its CLI. Requires ACE-Step installed and on PATH."""
-    lyrics_path = Path(output_path).with_suffix(".txt")
+    """Call ACE-Step via uv run acestep-api in one-shot mode.
+
+    Writes a JSON config and pipes it through CLI.
+    """
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write lyrics to temp file
+    lyrics_path = output_dir / "lyrics_input.txt"
     lyrics_path.write_text(lyrics, encoding="utf-8")
 
-    cmd = [
-        "python", "-m", "acestep.acestep_v15_pipeline",
-        "--lyrics", str(lyrics_path),
-        "--style_prompt", style_prompt,
-        "--output", str(output_path),
-    ]
-    if instrumental:
-        cmd.append("--instrumental")
+    # Build ACE-Step config JSON
+    config = {
+        "prompt": style_prompt,
+        "lyrics": lyrics,
+        "instrumental": instrumental,
+        "vocal_language": "zh",
+        "task_type": "text2music",
+        "thinking": False,
+        "inference_steps": 25,
+        "guidance_scale": 7.0,
+        "audio_format": "wav",
+    }
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    if result.returncode != 0:
-        raise RuntimeError(f"ACE-Step subprocess failed: {result.stderr}")
+    config_path = output_dir / "acestep_config.json"
+    config_path.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+
+    # Use uv run to call ACE-Step's generation directly
+    cmd = [
+        "uv", "run", "--no-sync",
+        "python", "-c", f"""
+import json, sys
+sys.path.insert(0, '{ACESTEP_DIR}')
+from acestep.api.job_blocking_generation import run_blocking_generate
+from acestep.api.http.release_task_models import GenerateMusicRequest
+
+config = json.loads(open('{config_path}').read())
+req = GenerateMusicRequest(**config)
+audio, _ = run_blocking_generate(req)
+with open('{output_path}', 'wb') as f:
+    f.write(audio)
+print("DONE")
+""",
+    ]
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        cwd=ACESTEP_DIR,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ACE-Step failed: {stderr.decode()}")
 
     out = Path(output_path)
     if not out.exists():
-        raise FileNotFoundError(f"ACE-Step did not produce output at {output_path}")
+        raise FileNotFoundError(f"No output at {output_path}")
     return out
 
 
@@ -76,49 +108,59 @@ async def _generate_api(
     output_path: str,
     instrumental: bool,
 ) -> Path:
-    """Call ACE-Step's built-in REST API server."""
+    """Call ACE-Step's REST API server (acestep-api)."""
     import httpx
 
-    api_url = os.getenv("ACESTEP_API_URL", "http://127.0.0.1:7860")
+    api_url = settings.acestep_api_url
+
     payload = {
+        "prompt": style_prompt,
         "lyrics": lyrics,
-        "style_prompt": style_prompt,
-        "instrumental": instrumental,
+        "vocal_language": "zh",
+        "task_type": "text2music",
+        "thinking": False,
+        "inference_steps": 25,
+        "guidance_scale": 7.0,
+        "audio_format": "wav",
     }
-    async with httpx.AsyncClient(timeout=600) as client:
-        resp = await client.post(f"{api_url}/generate", json=payload)
+    if instrumental:
+        payload["prompt"] += ", instrumental, no vocals"
+
+    # 1. Submit task
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{api_url}/release_task", json=payload)
         resp.raise_for_status()
-        data = resp.json()
-        audio_bytes = bytes(data["audio"])
+        task = resp.json()
+        task_id = task["task_id"]
 
-    Path(output_path).write_bytes(audio_bytes)
-    return Path(output_path)
+    # 2. Poll until done
+    async with httpx.AsyncClient(timeout=30) as client:
+        for _ in range(120):  # ~10 min timeout
+            await asyncio.sleep(5)
+            resp = await client.post(
+                f"{api_url}/query_result",
+                json={"task_ids": [task_id]},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get("results", {})
+            if task_id in results:
+                r = results[task_id]
+                if r["status"] == "succeeded":
+                    audio_path = r.get("audio_path", "")
+                    break
+                elif r["status"] == "failed":
+                    raise RuntimeError(f"Generation failed: {r.get('error', '')}")
+        else:
+            raise TimeoutError("Generation timed out")
 
-
-async def _generate_import(
-    lyrics: str,
-    style_prompt: str,
-    output_path: str,
-    instrumental: bool,
-) -> Path:
-    """Import ACE-Step pipeline directly as a Python library.
-
-    Requires: pip install -e path/to/ACE-Step-1.5
-    """
-    try:
-        from acestep.acestep_v15_pipeline import AceStepPipeline
-    except ImportError:
-        raise ImportError(
-            "ACE-Step is not installed as a library. "
-            "Install with: pip install -e /path/to/ACE-Step-1.5"
+    # 3. Download audio
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.get(
+            f"{api_url}/v1/audio",
+            params={"path": audio_path},
         )
+        resp.raise_for_status()
+        Path(output_path).write_bytes(resp.content)
 
-    model_dir = settings.acestep_model_dir
-    pipe = AceStepPipeline.from_pretrained(model_dir)
-    output = pipe.generate(
-        lyrics=lyrics,
-        style_prompt=style_prompt,
-        instrumental=instrumental,
-    )
-    output.save(output_path)
     return Path(output_path)

@@ -45,17 +45,15 @@ class TestArrangeEndpoint:
             mock_arrange.return_value = VALID_RESPONSE
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post("/arrange", json={
-                    "requirement": "一首关于星空的治愈系歌曲",
-                    "language": "zh",
+                    "prompt": "一首关于星空的治愈系歌曲",
                 })
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        assert data["success"] is True
-        assert data["result"]["title"] == "星空下的约定"
+        assert data["title"] == "星空下的约定"
 
     @pytest.mark.asyncio
     async def test_arrange_empty_requirement_rejected(self):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.post("/arrange", json={"requirement": ""})
+            resp = await client.post("/arrange", json={"prompt": ""})
         assert resp.status_code == 422
