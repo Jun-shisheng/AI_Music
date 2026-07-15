@@ -1,5 +1,37 @@
 # 开发日志
 
+## 2026-07-15 — 前端组件 + 一键启动 + 模型就位
+
+### 完成事项
+
+#### 前端组件 (apps/web)
+- **StylePicker**: 18 流派 / 16 情绪 / 18 乐器 / 8 人声 / 6 速度的可折叠标签选择器，自动生成英文 style_prompt
+- **StructureTags**: 10 个歌曲结构标签（前奏/主歌/副歌/桥段等），点击插入光标位置
+- **Create 页面重写**: 双栏布局（左: 歌词编辑+结构标签，右: 风格配置面板），从 Studio 页自动载入编排结果
+- **Studio 页面增强**: Ctrl+Enter 快捷提交，加载动画，结构化风格标签展示，复制 JSON
+- **Dark theme UI**: CSS 变量驱动的暗色主题，紫调 accent
+
+#### 一键启动
+- `start.bat` 重写：自动检测/下载模型 → 启动 ACE-Step API → 启动 FastAPI → 启动 Next.js → 打开浏览器
+- `scripts/download_models.py`: 独立的模型下载脚本，支持 HuggingFace/ModelScope 自动切换
+- 模型权重已下载到位: `vendor/ACE-Step-1.5/checkpoints/` (~11GB)
+
+#### 后端修复
+- ACE-Step runner 匹配实际 API 契约 (/release_task → /query_result 轮询 → /v1/audio 下载)
+- inference_steps 从 25 降至 8（turbo model 默认值）
+- 修复 wrap_response 数据格式解包
+
+### 模型状态
+| 组件 | 路径 | 大小 |
+|------|------|------|
+| acestep-v15-turbo (DiT) | checkpoints/acestep-v15-turbo/ | ~7GB |
+| vae | checkpoints/vae/ | ~1GB |
+| Qwen3-Embedding-0.6B | checkpoints/Qwen3-Embedding-0.6B/ | ~1GB |
+| acestep-5Hz-lm-1.7B (LM) | checkpoints/acestep-5Hz-lm-1.7B/ | ~2GB |
+| acestep-5Hz-lm-0.6B (LM small) | checkpoints/acestep-5Hz-lm-0.6B/ | ~800MB |
+
+---
+
 ## 2026-07-10 — 项目初始化与 P0 后端闭环
 
 ### 环境
