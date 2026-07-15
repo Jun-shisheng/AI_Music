@@ -18,6 +18,14 @@ echo   AI Music Studio - Local Music Workbench
 echo ============================================================
 echo.
 
+:: ---- Clean stale processes ----
+
+echo [Pre] Cleaning stale processes on ports 8765, 8000, 3000...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8765.*LISTENING" 2^>nul') do taskkill /F /PID %%a 2>nul
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000.*LISTENING" 2^>nul') do taskkill /F /PID %%a 2>nul
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000.*LISTENING" 2^>nul') do taskkill /F /PID %%a 2>nul
+echo [OK] Ports cleared.
+
 :: ---- Check / Download Models ----
 
 echo [0/3] Checking model weights...
@@ -56,6 +64,7 @@ set "ACESTEP_API_PORT=8765"
 set "ACESTEP_NO_INIT=false"
 set "ACESTEP_INIT_LLM=false"
 set "ACESTEP_CHECKPOINTS_DIR=%CHECKPOINTS%"
+set "ACESTEP_TMPDIR=%ROOT%\outputs"
 
 :: Write a launcher script for ACE-Step to avoid nested quote issues
 (
@@ -66,6 +75,7 @@ echo set ACESTEP_API_PORT=8765
 echo set ACESTEP_NO_INIT=false
 echo set ACESTEP_INIT_LLM=false
 echo set ACESTEP_CHECKPOINTS_DIR=%CHECKPOINTS%
+echo set ACESTEP_TMPDIR=%ROOT%\outputs
 echo "%ACESTEP_VENV%" -m uvicorn acestep.api_server:app --host 127.0.0.1 --port 8765 --workers 1 --log-level info
 echo if errorlevel 1 pause
 ) > "%TEMP%\acestep_launcher.bat"

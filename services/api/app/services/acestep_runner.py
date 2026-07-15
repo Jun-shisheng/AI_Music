@@ -8,6 +8,7 @@ Supports:
 import json
 import asyncio
 from pathlib import Path
+from urllib.parse import unquote, urlparse, parse_qs
 
 from app.config import settings
 
@@ -170,11 +171,14 @@ async def _generate_api(
         raise RuntimeError("No audio file in generation result")
 
     # 3. Download audio
+    # ACE-Step returns file as either:
+    #   - URL: "/v1/audio?path=<encoded_path>"
+    #   - or raw filesystem path
     async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.get(
-            f"{api_url}/v1/audio",
-            params={"path": audio_rel},
-        )
+        if audio_rel.startswith("/v1/audio"):
+            resp = await client.get(f"{api_url}{audio_rel}")
+        else:
+            resp = await client.get(f"{api_url}/v1/audio", params={"path": audio_rel})
         resp.raise_for_status()
         Path(output_path).write_bytes(resp.content)
 
