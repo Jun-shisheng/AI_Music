@@ -108,57 +108,72 @@ async def _generate_api(
     output_path: str,
     instrumental: bool,
 ) -> Path:
-    """Call ACE-Step's REST API server (acestep-api)."""
+    """Call ACE-Step's REST API server (acestep-api).
+
+    Flow: submit task → poll for completion → download audio.
+    """
     import httpx
 
     api_url = settings.acestep_api_url
+    prompt = style_prompt
+    if instrumental:
+        prompt += ", instrumental, no vocals"
 
     payload = {
-        "prompt": style_prompt,
+        "prompt": prompt,
         "lyrics": lyrics,
         "vocal_language": "zh",
         "task_type": "text2music",
         "thinking": False,
-        "inference_steps": 25,
+        "inference_steps": 8,
         "guidance_scale": 7.0,
         "audio_format": "wav",
     }
-    if instrumental:
-        payload["prompt"] += ", instrumental, no vocals"
 
     # 1. Submit task
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(f"{api_url}/release_task", json=payload)
         resp.raise_for_status()
-        task = resp.json()
-        task_id = task["task_id"]
+        body = resp.json()
+        task_id = body["data"]["task_id"]
 
-    # 2. Poll until done
+    # 2. Poll until done (status: 0=running, 1=succeeded, 2=failed)
     async with httpx.AsyncClient(timeout=30) as client:
         for _ in range(120):  # ~10 min timeout
             await asyncio.sleep(5)
             resp = await client.post(
                 f"{api_url}/query_result",
-                json={"task_ids": [task_id]},
+                json={"task_id_list": json.dumps([task_id])},
             )
             resp.raise_for_status()
-            data = resp.json()
-            results = data.get("results", {})
-            if task_id in results:
-                r = results[task_id]
-                if r["status"] == "succeeded":
-                    audio_path = r.get("audio_path", "")
+            body = resp.json()
+            items = body.get("data", [])
+            for item in items:
+                if item.get("task_id") != task_id:
+                    continue
+                status = item.get("status")
+                if status == 1:  # succeeded
+                    result_str = item.get("result", "[]")
+                    results = json.loads(result_str) if isinstance(result_str, str) else result_str
+                    audio_rel = results[0].get("file", "") if results else ""
                     break
-                elif r["status"] == "failed":
-                    raise RuntimeError(f"Generation failed: {r.get('error', '')}")
+                elif status == 2:  # failed
+                    raise RuntimeError(f"Generation failed: {item.get('progress_text', '')}")
+                audio_rel = ""
+            else:
+                continue
+            break  # got a terminal status
         else:
-            raise TimeoutError("Generation timed out")
+            raise TimeoutError("Generation timed out (10 min)")
+
+    if not audio_rel:
+        raise RuntimeError("No audio file in generation result")
 
     # 3. Download audio
     async with httpx.AsyncClient(timeout=120) as client:
         resp = await client.get(
             f"{api_url}/v1/audio",
-            params={"path": audio_path},
+            params={"path": audio_rel},
         )
         resp.raise_for_status()
         Path(output_path).write_bytes(resp.content)
