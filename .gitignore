@@ -1,0 +1,17 @@
+﻿.superpowers/
+__pycache__/
+.env
+.venv/
+venv/
+node_modules/
+.next/
+vendor/
+models/
+outputs/
+*.wav
+*.mp3
+*.flac
+.DS_Store
+data/
+*.db
+*.sqlite3
