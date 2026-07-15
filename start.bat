@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 title AI Music Studio
@@ -10,14 +9,15 @@ set "ACESTEP_VENV=%ACESTEP_DIR%\.venv\Scripts\python.exe"
 set "CHECKPOINTS=%ACESTEP_DIR%\checkpoints"
 
 echo.
-echo ╔══════════════════════════════════════════════════╗
-echo ║         AI Music Studio - 本地音乐工作台          ║
-echo ╚══════════════════════════════════════════════════╝
+echo ============================================================
+echo   AI Music Studio - Local Music Workbench
+echo ============================================================
 echo.
 
-:: ── Phase 0: Check models ────────────────────────────────────────────────
+:: ---- Check / Download Models ----
 
-echo [0/3] 检查模型权重...
+echo [0/3] Checking model weights...
+
 set "MODELS_OK=0"
 if exist "%CHECKPOINTS%\acestep-v15-turbo\model.safetensors" set "MODELS_OK=1"
 if exist "%CHECKPOINTS%\acestep-v15-turbo\model.safetensors.index.json" set "MODELS_OK=1"
@@ -26,26 +26,26 @@ if exist "%CHECKPOINTS%\acestep-v15-turbo\diffusion_pytorch_model.safetensors.in
 
 if "%MODELS_OK%"=="0" (
     echo.
-    echo [模型下载] 模型权重未找到，开始下载 (~10GB)...
-    echo [模型下载] 将自动选择 HuggingFace 或 ModelScope 镜像
+    echo [Download] Models not found. Downloading ~10GB...
+    echo [Download] Will auto-select HuggingFace or ModelScope mirror.
     echo.
     cd /d "%ACESTEP_DIR%"
     call "%ACESTEP_VENV%" -m acestep.model_downloader --dir "%CHECKPOINTS%"
-    if %ERRORLEVEL% neq 0 (
-        echo [错误] 模型下载失败，请检查网络连接后重试
+    if errorlevel 1 (
+        echo [ERROR] Model download failed. Check network and retry.
         pause
         exit /b 1
     )
-    echo [模型下载] 完成！
+    echo [Download] Done!
     echo.
 ) else (
-    echo [OK] 模型权重已就绪
+    echo [OK] Model weights ready.
 )
 
-:: ── Phase 1: ACE-Step API (port 8765) ────────────────────────────────────
+:: ---- Start ACE-Step API (port 8765) ----
 
 echo.
-echo [1/3] 启动 ACE-Step API (127.0.0.1:8765)...
+echo [1/3] Starting ACE-Step API (127.0.0.1:8765)...
 
 set "ACESTEP_API_HOST=127.0.0.1"
 set "ACESTEP_API_PORT=8765"
@@ -55,82 +55,79 @@ set "ACESTEP_CHECKPOINTS_DIR=%CHECKPOINTS%"
 
 start "ACE-Step API" cmd /c "cd /d "%ACESTEP_DIR%" && "%ACESTEP_VENV%" -m uvicorn acestep.api_server:app --host 127.0.0.1 --port 8765 --workers 1 --log-level info"
 
-:: Wait for ACE-Step to be ready (health check + model loading can take 2-5 min)
-echo [等待] ACE-Step 模型加载中（首次需 2-5 分钟）...
-set "WAIT_COUNT=0"
+echo [Wait] ACE-Step loading models (first time 2-5 min)...
+
+set "TRIES=0"
 :wait_acestep
 timeout /t 5 /nobreak >nul
-set /a WAIT_COUNT+=5
-curl -s http://127.0.0.1:8765/health >nul 2>&1
+set /a TRIES+=1
+powershell -Command "try { $r=Invoke-WebRequest -Uri 'http://127.0.0.1:8765/health' -TimeoutSec 3 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    echo [OK] ACE-Step API 就绪 (等待 %WAIT_COUNT%s^)
+    set /a SECS=%TRIES%*5
+    echo [OK] ACE-Step API ready ^(!SECS!s^)
     goto :acestep_ready
 )
-if %WAIT_COUNT% lss 600 (
-    if %WAIT_COUNT% equ 30 echo [等待] 首次加载需要下载/初始化模型，请耐心等待...
+if %TRIES% lss 120 (
+    if %TRIES% equ 6 echo [Wait] First startup may take a few minutes, please wait...
     goto :wait_acestep
 )
-echo [警告] ACE-Step 启动超时，继续启动其他服务...
+echo [WARN] ACE-Step startup timeout, continuing anyway...
 :acestep_ready
 
-:: ── Phase 2: FastAPI (port 8000) ──────────────────────────────────────────
+:: ---- Start FastAPI (port 8000) ----
 
 echo.
-echo [2/3] 启动 FastAPI 后端 (127.0.0.1:8000)...
+echo [2/3] Starting FastAPI backend (127.0.0.1:8000)...
 start "FastAPI" cmd /c "cd /d "%ROOT%\services\api" && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
 
-:: Wait for FastAPI
-set "WAIT_COUNT=0"
+set "TRIES=0"
 :wait_fastapi
 timeout /t 2 /nobreak >nul
-set /a WAIT_COUNT+=2
-curl -s http://127.0.0.1:8000/health >nul 2>&1
+set /a TRIES+=1
+powershell -Command "try { $r=Invoke-WebRequest -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 2 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    echo [OK] FastAPI 就绪
+    echo [OK] FastAPI ready
     goto :fastapi_ready
 )
-if %WAIT_COUNT% lss 30 goto :wait_fastapi
-echo [警告] FastAPI 启动超时
+if %TRIES% lss 15 goto :wait_fastapi
+echo [WARN] FastAPI startup timeout
 :fastapi_ready
 
-:: ── Phase 3: Next.js (port 3000) ──────────────────────────────────────────
+:: ---- Start Next.js (port 3000) ----
 
 echo.
-echo [3/3] 启动前端 (http://localhost:3000)...
+echo [3/3] Starting frontend (http://localhost:3000)...
 start "Next.js" cmd /c "cd /d "%ROOT%\apps\web" && npx next dev --port 3000"
 
-:: Wait for Next.js
-set "WAIT_COUNT=0"
+set "TRIES=0"
 :wait_next
 timeout /t 2 /nobreak >nul
-set /a WAIT_COUNT+=2
-curl -s http://localhost:3000 >nul 2>&1
+set /a TRIES+=1
+powershell -Command "try { $r=Invoke-WebRequest -Uri 'http://localhost:3000' -TimeoutSec 2 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    echo [OK] Next.js 就绪
+    echo [OK] Next.js ready
     goto :next_ready
 )
-if %WAIT_COUNT% lss 30 goto :wait_next
-echo [警告] Next.js 启动超时
+if %TRIES% lss 15 goto :wait_next
+echo [WARN] Next.js startup timeout
 :next_ready
 
-:: ── Done ──────────────────────────────────────────────────────────────────
+:: ---- Done ----
 
 echo.
-echo ╔══════════════════════════════════════════════════╗
-echo ║           全部服务已启动                           ║
-echo ╠══════════════════════════════════════════════════╣
-echo ║  ACE-Step API     http://127.0.0.1:8765           ║
-echo ║  FastAPI 后端     http://127.0.0.1:8000/docs      ║
-echo ║  前端工作台       http://localhost:3000            ║
-echo ╚══════════════════════════════════════════════════╝
+echo ============================================================
+echo   All services started!
 echo.
-echo 按任意键打开浏览器，或关闭此窗口停止所有服务...
-
-:: Open browser
+echo   ACE-Step API    http://127.0.0.1:8765
+echo   FastAPI         http://127.0.0.1:8000/docs
+echo   Frontend        http://localhost:3000
+echo ============================================================
+echo.
+echo Press any key to open browser, or close this window to stop.
 pause >nul
 start http://localhost:3000
 echo.
-echo 浏览器已打开。关闭各终端窗口即可停止服务。
-echo 下次启动速度会更快（模型已缓存）。
+echo Browser opened. Close each terminal window to stop services.
+echo Next startup will be faster (models cached).
 echo.
 pause
