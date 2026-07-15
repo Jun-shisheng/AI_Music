@@ -1,0 +1,78 @@
+diff --git a/acestep/api/http/model_init_service.py b/acestep/api/http/model_init_service.py
+index 73e1bb8..ed8e147 100644
+--- a/acestep/api/http/model_init_service.py
++++ b/acestep/api/http/model_init_service.py
+@@ -106,6 +106,17 @@ def initialize_models_for_request(
+     compile_model = env_bool("ACESTEP_COMPILE_MODEL", False)
+     device = os.getenv("ACESTEP_DEVICE", "auto")
+ 
++    # Resolve quantization: env override > GPU tier default > None
++    _q_env = os.getenv("ACESTEP_QUANTIZATION", "").strip().lower()
++    if _q_env in ("", "none", "null"):
++        quantization = None
++    elif _q_env in ("int8_weight_only", "fp8_weight_only", "w8a8_dynamic"):
++        quantization = _q_env
++    else:
++        quantization = None
++    if quantization is None and gpu_config.quantization_default:
++        quantization = "int8_weight_only"
++
+     ensure_model_downloaded(target_model, checkpoint_dir)
+     ensure_model_downloaded("vae", checkpoint_dir)
+ 
+@@ -115,6 +126,7 @@ def initialize_models_for_request(
+         device=device,
+         use_flash_attention=use_flash_attention,
+         compile_model=compile_model,
++        quantization=quantization,
+         offload_to_cpu=offload_to_cpu,
+         offload_dit_to_cpu=offload_dit_to_cpu,
+     )
+diff --git a/acestep/api/startup_model_init.py b/acestep/api/startup_model_init.py
+index c8bca85..1b624a7 100644
+--- a/acestep/api/startup_model_init.py
++++ b/acestep/api/startup_model_init.py
+@@ -61,6 +61,19 @@ def do_model_initialization(
+     offload_dit_to_cpu = env_bool("ACESTEP_OFFLOAD_DIT_TO_CPU", False)
+     compile_model = env_bool("ACESTEP_COMPILE_MODEL", False)
+ 
++    # Resolve quantization: env override > GPU tier default > None
++    _q_env = os.getenv("ACESTEP_QUANTIZATION", "").strip().lower()
++    if _q_env in ("", "none", "null"):
++        quantization = None
++    elif _q_env in ("int8_weight_only", "fp8_weight_only", "w8a8_dynamic"):
++        quantization = _q_env
++    else:
++        quantization = None
++    if quantization is None and gpu_config.quantization_default:
++        quantization = "int8_weight_only"
++    if quantization:
++        print(f"[API Server] DiT quantization: {quantization}")
++
+     checkpoint_dir = os.path.join(project_root, "checkpoints")
+     os.makedirs(checkpoint_dir, exist_ok=True)
+ 
+@@ -83,6 +96,7 @@ def do_model_initialization(
+         device=device,
+         use_flash_attention=use_flash_attention,
+         compile_model=compile_model,
++        quantization=quantization,
+         offload_to_cpu=offload_to_cpu,
+         offload_dit_to_cpu=offload_dit_to_cpu,
+     )
+@@ -108,6 +122,7 @@ def do_model_initialization(
+                 device=device,
+                 use_flash_attention=use_flash_attention,
+                 compile_model=compile_model,
++                quantization=quantization,
+                 offload_to_cpu=offload_to_cpu,
+                 offload_dit_to_cpu=offload_dit_to_cpu,
+             )
+@@ -135,6 +150,7 @@ def do_model_initialization(
+                 device=device,
+                 use_flash_attention=use_flash_attention,
+                 compile_model=compile_model,
++                quantization=quantization,
+                 offload_to_cpu=offload_to_cpu,
+                 offload_dit_to_cpu=offload_dit_to_cpu,
+             )

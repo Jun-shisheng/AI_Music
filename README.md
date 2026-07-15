@@ -250,6 +250,11 @@ ACESTEP_BACKEND=api              # "api" (recommended) or "subprocess"
 ACESTEP_API_URL=http://127.0.0.1:8765
 ACESTEP_DIR=G:/AI_Music/vendor/ACE-Step-1.5
 
+# GPU optimization (auto-detected from GPU tier, override if needed)
+# ACESTEP_QUANTIZATION=int8_weight_only   # int8_weight_only | fp8_weight_only | w8a8_dynamic | none
+# ACESTEP_OFFLOAD_TO_CPU=true            # Enable CPU offload for VAE/text encoder
+# ACESTEP_TMPDIR=G:/AI_Music/outputs     # Generated audio output directory
+
 # Paths
 OUTPUT_DIR=G:/AI_Music/outputs
 DATABASE_URL=sqlite:///G:/AI_Music/data/app.db
@@ -258,6 +263,16 @@ DATABASE_URL=sqlite:///G:/AI_Music/data/app.db
 API_HOST=127.0.0.1
 API_PORT=8000
 ```
+
+### GPU optimization for 8 GB cards
+
+On GPUs with 8 GB VRAM, the API server automatically applies INT8 weight-only quantization to the DiT model, reducing its memory footprint from ~7 GB to ~3.5 GB. This is auto-detected from your GPU tier and requires no configuration.
+
+Override with `ACESTEP_QUANTIZATION`:
+- `int8_weight_only` — ~50% VRAM savings, negligible quality loss (default for ≤12 GB)
+- `fp8_weight_only` — ~50% VRAM savings, slightly better precision (requires Ada/Hopper GPU)
+- `w8a8_dynamic` — more aggressive, quantizes activations too
+- `none` / `null` — disable quantization
 
 ## Troubleshooting
 
@@ -307,6 +322,46 @@ The ACE-Step 1.5 turbo model produces acceptable instrumental quality but vocals
 - Fine-tuning with high-quality Chinese vocal datasets
 - LoRA adapters for specific vocal styles
 - Two-stage generation: instrument track + vocal track separately
+
+## Roadmap
+
+### v0.2 — Quality & Polish
+
+- [ ] **SFT model support** — `acestep-v15-sft` for higher vocal quality (trade-off: 3× slower inference)
+- [ ] **Custom voice profiles** — save and reuse vocal characteristics across songs (like Suno's Persona)
+- [ ] **Stem separation** — split output into vocals + accompaniment for post-processing
+- [ ] **Post-processing pipeline** — automatic de-esser, EQ normalization, loudness normalization (LUFS)
+- [ ] **FLAC/MP3 output** — configurable output format with proper tagging
+
+### v0.3 — Creative Tools
+
+- [ ] **Voice cloning / LoRA adapters** — fine-tune on a reference vocal sample to reproduce a specific voice
+- [ ] **Style library** — curated presets for common Chinese music genres (古风, 国风 R&B, 民谣, C-Pop, etc.)
+- [ ] **Multi-language vocals** — Japanese, Korean, English vocal support
+- [ ] **Cover mode** — upload a reference track, ACE-Step generates in-the-style-of arrangement
+- [ ] **Inpainting / repainting** — re-generate specific song sections without touching the rest
+
+### v0.4 — Ecosystem
+
+- [ ] **Docker Compose one-click** — fully containerized setup including CUDA
+- [ ] **Suno-API compatibility layer** — drop-in API replacement for tools that speak Suno's API
+- [ ] **VST/AU plugin bridge** — route generated audio directly into DAW workflows
+- [ ] **Training recipes** — documentation and scripts for LoRA fine-tuning on custom datasets
+
+### Custom Voice / Persona (like Suno)
+
+The goal for v0.2 is a "Voice Profile" system:
+
+1. **Capture** — record or upload 30–60 seconds of target vocals
+2. **Extract** — compute a vocal embedding using a speaker verification model (e.g. Resemblyzer / ECAPA-TDNN)
+3. **Condition** — inject the embedding into ACE-Step's DiT cross-attention layers during inference, steering vocal timbre toward the target
+4. **Reuse** — saved profiles persist locally, selectable from a dropdown in the Create page
+
+This is technically feasible because ACE-Step's DiT backbone uses cross-attention for conditioning — the same mechanism that injects text prompts. Adding a speaker embedding is architecturally straightforward; the main work is training/fine-tuning the conditioning adapter.
+
+For v0.3, we aim to go further with **LoRA-based voice cloning**: fine-tune a low-rank adapter on a longer reference sample (3–5 minutes of clean vocals) for higher-fidelity voice reproduction. LoRA adapters are small (~20–50 MB) and can be shared as `.safetensors` files.
+
+---
 
 ## License
 

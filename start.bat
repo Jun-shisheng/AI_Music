@@ -26,6 +26,25 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000.*LISTENING" 2^>nul') d
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000.*LISTENING" 2^>nul') do taskkill /F /PID %%a 2>nul
 echo [OK] Ports cleared.
 
+:: ---- Apply patches to ACE-Step (one-time) ----
+
+if exist "%ROOT%\patches\ace-step-int8-quantization.patch" (
+    if exist "%ACESTEP_DIR%\.git" (
+        cd /d "%ACESTEP_DIR%"
+        git apply --check "%ROOT%\patches\ace-step-int8-quantization.patch" >nul 2>&1
+        if errorlevel 1 (
+            echo [Patch] INT8 quantization already applied
+        ) else (
+            git apply "%ROOT%\patches\ace-step-int8-quantization.patch" >nul 2>&1
+            if errorlevel 1 (
+                echo [WARN] Failed to apply INT8 quantization patch
+            ) else (
+                echo [Patch] INT8 quantization enabled for 8GB GPU
+            )
+        )
+    )
+)
+
 :: ---- Check / Download Models ----
 
 echo [0/3] Checking model weights...
