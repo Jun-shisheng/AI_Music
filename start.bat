@@ -7,6 +7,10 @@ set "ROOT=G:\AI_Music"
 set "ACESTEP_DIR=%ROOT%\vendor\ACE-Step-1.5"
 set "ACESTEP_VENV=%ACESTEP_DIR%\.venv\Scripts\python.exe"
 set "CHECKPOINTS=%ACESTEP_DIR%\checkpoints"
+set "API_PYTHON=%ROOT%\services\api\.venv\Scripts\python.exe"
+
+:: Fall back to system python if API venv doesn't exist
+if not exist "%API_PYTHON%" set "API_PYTHON=python"
 
 echo.
 echo ============================================================
@@ -53,7 +57,19 @@ set "ACESTEP_NO_INIT=false"
 set "ACESTEP_INIT_LLM=false"
 set "ACESTEP_CHECKPOINTS_DIR=%CHECKPOINTS%"
 
-start "ACE-Step API" cmd /c "cd /d "%ACESTEP_DIR%" && "%ACESTEP_VENV%" -m uvicorn acestep.api_server:app --host 127.0.0.1 --port 8765 --workers 1 --log-level info"
+:: Write a launcher script for ACE-Step to avoid nested quote issues
+(
+echo @echo off
+echo cd /d "%ACESTEP_DIR%"
+echo set ACESTEP_API_HOST=127.0.0.1
+echo set ACESTEP_API_PORT=8765
+echo set ACESTEP_NO_INIT=false
+echo set ACESTEP_INIT_LLM=false
+echo set ACESTEP_CHECKPOINTS_DIR=%CHECKPOINTS%
+echo "%ACESTEP_VENV%" -m uvicorn acestep.api_server:app --host 127.0.0.1 --port 8765 --workers 1 --log-level info
+echo if errorlevel 1 pause
+) > "%TEMP%\acestep_launcher.bat"
+start "ACE-Step API" "%TEMP%\acestep_launcher.bat"
 
 echo [Wait] ACE-Step loading models (first time 2-5 min)...
 
@@ -78,7 +94,14 @@ echo [WARN] ACE-Step startup timeout, continuing anyway...
 
 echo.
 echo [2/3] Starting FastAPI backend (127.0.0.1:8000)...
-start "FastAPI" cmd /c "cd /d "%ROOT%\services\api" && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
+
+(
+echo @echo off
+echo cd /d "%ROOT%\services\api"
+echo "%API_PYTHON%" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+echo if errorlevel 1 pause
+) > "%TEMP%\fastapi_launcher.bat"
+start "FastAPI" "%TEMP%\fastapi_launcher.bat"
 
 set "TRIES=0"
 :wait_fastapi
@@ -90,14 +113,21 @@ if %ERRORLEVEL% equ 0 (
     goto :fastapi_ready
 )
 if %TRIES% lss 15 goto :wait_fastapi
-echo [WARN] FastAPI startup timeout
+echo [WARN] FastAPI startup timeout - starting anyway
 :fastapi_ready
 
 :: ---- Start Next.js (port 3000) ----
 
 echo.
 echo [3/3] Starting frontend (http://localhost:3000)...
-start "Next.js" cmd /c "cd /d "%ROOT%\apps\web" && npx next dev --port 3000"
+
+(
+echo @echo off
+echo cd /d "%ROOT%\apps\web"
+echo npx next dev --port 3000
+echo if errorlevel 1 pause
+) > "%TEMP%\nextjs_launcher.bat"
+start "Next.js" "%TEMP%\nextjs_launcher.bat"
 
 set "TRIES=0"
 :wait_next
