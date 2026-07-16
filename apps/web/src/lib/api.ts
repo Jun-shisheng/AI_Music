@@ -26,6 +26,10 @@ export interface GenerateRequest {
   lyrics: string;
   style_prompt: string;
   instrumental: boolean;
+  generation_type?: 'song' | 'bgm_loop' | 'sfx';
+  duration_seconds?: number;
+  loopable?: boolean;
+  variation_label?: string;
 }
 
 export interface JobStatus {
@@ -35,6 +39,10 @@ export interface JobStatus {
   lyrics?: string;
   style_prompt?: string;
   instrumental?: boolean;
+  generation_type?: 'song' | 'bgm_loop' | 'sfx';
+  duration_seconds?: number;
+  loopable?: boolean;
+  variation_label?: string;
   audio_path?: string;
   audio_url?: string;
   error?: string;

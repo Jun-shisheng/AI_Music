@@ -12,9 +12,13 @@ router = APIRouter(prefix="/generate", tags=["generate"])
 async def create_generation(req: GenerateRequest):
     job = Job(
         title=req.title,
-        lyrics=req.lyrics,
+        lyrics=req.lyrics or ("[Instrumental]" if req.instrumental else ""),
         style_prompt=req.style_prompt,
         instrumental=req.instrumental,
+        generation_type=req.generation_type,
+        duration_seconds=req.duration_seconds,
+        loopable=req.loopable,
+        variation_label=req.variation_label,
         status="queued",
     )
     with SessionLocal() as session:

@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 const links = [
   { href: '/studio', label: '编曲房' },
   { href: '/create', label: '创作' },
+  { href: '/assets', label: '素材' },
   { href: '/library', label: '曲库' },
 ];
 

@@ -65,6 +65,8 @@ async def _process_job(job_id: str):
                 style_prompt=job.style_prompt,
                 output_path=output_path,
                 instrumental=job.instrumental,
+                duration_seconds=job.duration_seconds,
+                loopable=job.loopable,
             )
 
             job.status = "succeeded"

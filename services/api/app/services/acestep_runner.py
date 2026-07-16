@@ -25,13 +25,19 @@ async def generate(
     style_prompt: str,
     output_path: str,
     instrumental: bool = False,
+    duration_seconds: int | None = None,
+    loopable: bool = False,
 ) -> Path:
     _ensure_output_dir()
 
     if BACKEND == "subprocess":
-        return await _generate_subprocess(lyrics, style_prompt, output_path, instrumental)
+        return await _generate_subprocess(
+            lyrics, style_prompt, output_path, instrumental, duration_seconds, loopable
+        )
     elif BACKEND == "api":
-        return await _generate_api(lyrics, style_prompt, output_path, instrumental)
+        return await _generate_api(
+            lyrics, style_prompt, output_path, instrumental, duration_seconds, loopable
+        )
     else:
         raise ValueError(f"Unknown ACESTEP_BACKEND: {BACKEND}")
 
@@ -41,6 +47,8 @@ async def _generate_subprocess(
     style_prompt: str,
     output_path: str,
     instrumental: bool,
+    duration_seconds: int | None,
+    loopable: bool,
 ) -> Path:
     """Call ACE-Step via uv run acestep-api in one-shot mode.
 
@@ -53,10 +61,14 @@ async def _generate_subprocess(
     lyrics_path = output_dir / "lyrics_input.txt"
     lyrics_path.write_text(lyrics, encoding="utf-8")
 
+    prompt = style_prompt
+    if loopable:
+        prompt = f"{prompt}, seamless loop, loopable game background music"
+
     # Build ACE-Step config JSON
     config = {
-        "prompt": style_prompt,
-        "lyrics": lyrics,
+        "prompt": prompt,
+        "lyrics": lyrics or ("[Instrumental]" if instrumental else ""),
         "instrumental": instrumental,
         "vocal_language": "zh",
         "task_type": "text2music",
@@ -65,6 +77,8 @@ async def _generate_subprocess(
         "guidance_scale": 7.0,
         "audio_format": "wav",
     }
+    if duration_seconds:
+        config["audio_duration"] = duration_seconds
 
     config_path = output_dir / "acestep_config.json"
     config_path.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
@@ -108,6 +122,8 @@ async def _generate_api(
     style_prompt: str,
     output_path: str,
     instrumental: bool,
+    duration_seconds: int | None,
+    loopable: bool,
 ) -> Path:
     """Call ACE-Step's REST API server (acestep-api).
 
@@ -119,10 +135,12 @@ async def _generate_api(
     prompt = style_prompt
     if instrumental:
         prompt += ", instrumental, no vocals"
+    if loopable:
+        prompt += ", seamless loop, loopable game background music, clean loop point"
 
     payload = {
         "prompt": prompt,
-        "lyrics": lyrics,
+        "lyrics": lyrics or ("[Instrumental]" if instrumental else ""),
         "vocal_language": "zh",
         "task_type": "text2music",
         "thinking": False,
@@ -130,6 +148,8 @@ async def _generate_api(
         "guidance_scale": 7.0,
         "audio_format": "wav",
     }
+    if duration_seconds:
+        payload["audio_duration"] = duration_seconds
 
     # 1. Submit task
     async with httpx.AsyncClient(timeout=30) as client:

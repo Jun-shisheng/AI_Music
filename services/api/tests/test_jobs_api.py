@@ -39,6 +39,34 @@ async def test_get_job_returns_details():
 
 
 @pytest.mark.asyncio
+async def test_create_game_asset_generation_returns_metadata():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_resp = await client.post("/generate", json={
+            "title": "Forest Loop A",
+            "lyrics": "",
+            "style_prompt": "fantasy forest, calm ambient, harp",
+            "instrumental": True,
+            "generation_type": "bgm_loop",
+            "duration_seconds": 30,
+            "loopable": True,
+            "variation_label": "A",
+        })
+        job_id = create_resp.json()["id"]
+
+        get_resp = await client.get(f"/jobs/{job_id}")
+
+    assert create_resp.status_code == 201
+    assert get_resp.status_code == 200
+    data = get_resp.json()
+    assert data["generation_type"] == "bgm_loop"
+    assert data["duration_seconds"] == 30
+    assert data["loopable"] is True
+    assert data["variation_label"] == "A"
+    assert data["lyrics"] == "[Instrumental]"
+
+
+@pytest.mark.asyncio
 async def test_get_nonexistent_job_returns_404():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
