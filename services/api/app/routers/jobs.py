@@ -9,6 +9,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 def _job_to_response(job: Job) -> JobResponse:
+    audio_url = f"/audio/{job.id}.wav" if job.audio_path else None
     return JobResponse(
         id=job.id,
         title=job.title,
@@ -17,6 +18,7 @@ def _job_to_response(job: Job) -> JobResponse:
         instrumental=job.instrumental,
         status=job.status,
         audio_path=job.audio_path,
+        audio_url=audio_url,
         error=job.error,
         created_at=job.created_at,
         updated_at=job.updated_at,

@@ -23,6 +23,7 @@ class JobResponse(BaseModel):
     instrumental: bool
     status: str
     audio_path: str | None = None
+    audio_url: str | None = None
     error: str | None = None
     created_at: datetime
     updated_at: datetime

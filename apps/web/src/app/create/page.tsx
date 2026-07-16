@@ -116,7 +116,7 @@ function CreateContent() {
         style_prompt: stylePrompt,
         instrumental: form.instrumental,
       });
-      setJobId(res.job_id);
+      setJobId(res.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -249,9 +249,9 @@ function CreateContent() {
                   {job.status === 'succeeded' && job.audio_path && (
                     <div className="space-y-2">
                       <p className="text-xs text-[var(--success)]">生成完成</p>
-                      <audio controls className="w-full" src={audioUrl(job.audio_path)} />
+                      <audio controls className="w-full" src={audioUrl(job.audio_url || job.audio_path)} />
                       <a
-                        href={audioUrl(job.audio_path)}
+                        href={audioUrl(job.audio_url || job.audio_path)}
                         download
                         className="inline-block text-xs text-[var(--accent)] hover:underline"
                       >

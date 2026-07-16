@@ -171,7 +171,9 @@ export default function LibraryPage() {
           autoPlay
           onEnded={() => setPlaying(null)}
           src={audioUrl(
-            items.find((i) => i.id === playing)?.audio_path || ''
+            items.find((i) => i.id === playing)?.audio_url ||
+              items.find((i) => i.id === playing)?.audio_path ||
+              ''
           )}
           className="hidden"
         />

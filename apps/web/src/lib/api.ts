@@ -36,18 +36,13 @@ export interface JobStatus {
   style_prompt?: string;
   instrumental?: boolean;
   audio_path?: string;
+  audio_url?: string;
   error?: string;
   created_at: string;
   updated_at: string;
 }
 
-export interface LibraryItem {
-  id: string;
-  title: string;
-  status: string;
-  audio_path?: string;
-  created_at: string;
-}
+export interface LibraryItem extends JobStatus {}
 
 export async function arrange(req: ArrangeRequest): Promise<ArrangeResponse> {
   const res = await fetch(`${BASE}/arrange`, {
@@ -62,7 +57,7 @@ export async function arrange(req: ArrangeRequest): Promise<ArrangeResponse> {
   return res.json();
 }
 
-export async function generate(req: GenerateRequest): Promise<{ job_id: string }> {
+export async function generate(req: GenerateRequest): Promise<{ id: string; status: string }> {
   const res = await fetch(`${BASE}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -95,5 +90,8 @@ export async function getLibrary(status?: string): Promise<LibraryItem[]> {
 }
 
 export function audioUrl(filename: string): string {
-  return `${BASE}/audio/${filename}`;
+  if (filename.startsWith('/api/')) return filename;
+  if (filename.startsWith('/')) return `${BASE}${filename}`;
+  const basename = filename.split(/[\\/]/).filter(Boolean).pop() || filename;
+  return `${BASE}/audio/${encodeURIComponent(basename)}`;
 }

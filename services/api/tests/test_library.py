@@ -40,3 +40,29 @@ async def test_library_filter_by_status():
     assert resp.status_code == 200
     for job in resp.json():
         assert job["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_library_includes_audio_url_for_completed_jobs():
+    from app.db import SessionLocal
+    from app.models import Job
+
+    job = Job(
+        title="Playable",
+        lyrics="[Verse] listen",
+        style_prompt="piano",
+        status="succeeded",
+        audio_path="G:/AI_Music/outputs/playable.wav",
+    )
+    with SessionLocal() as session:
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/library?status=succeeded")
+
+    assert resp.status_code == 200
+    item = next(j for j in resp.json() if j["id"] == job_id)
+    assert item["audio_url"] == f"/audio/{job_id}.wav"

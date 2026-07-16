@@ -17,14 +17,12 @@ def _job_to_response(job: Job) -> dict:
         instrumental=job.instrumental,
         status=job.status,
         audio_path=job.audio_path,
+        audio_url=f"/audio/{job.id}.wav" if job.audio_path else None,
         error=job.error,
         created_at=job.created_at,
         updated_at=job.updated_at,
     )
-    data = resp.model_dump()
-    if job.audio_path:
-        data["audio_url"] = f"/audio/{job.id}.wav"
-    return data
+    return resp.model_dump()
 
 
 @router.get("")
