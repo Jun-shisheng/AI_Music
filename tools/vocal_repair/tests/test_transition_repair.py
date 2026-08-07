@@ -103,6 +103,68 @@ def test_silence_gap_classified_with_audio(tmp_path):
     assert events[0]["type"] == "silence_gap"
 
 
+def test_long_true_silence_gap_is_silence_gap_not_screech(tmp_path):
+    """A long true-silence gap (0.5s, beyond the 0.30s bridge budget) must be
+    classified silence_gap, NOT screech. The bridged-energy check must sample
+    the window MIDDLE only: the inter-note window's edges are the notes'
+    fades, which carry energy even when the middle is true silence. Measuring
+    the whole window reads note A's tail / note B's onset and misclassifies
+    the gap as energy-bridged -> screech (the real HeartMuLa 39.2s bug:
+    ~1.3s of -61..-81dB silence flanked by a -15.8dB onset was 'repaired'
+    with a 2.3s synthesized glide)."""
+    gap_s = 0.5
+    sig, sr = make_audio_with_step(tmp_path, gap_s=gap_s)
+    f0 = extract_f0(sig, sr)
+    events = detect_transition_events(f0, sr, x=sig)
+    assert len(events) == 1
+    assert events[0]["type"] == "silence_gap"
+    assert events[0]["t1"] - events[0]["t0"] >= gap_s - 0.05
+
+
+def test_long_silence_gap_surfaced_as_long_gap_skipped(tmp_path):
+    """A long true-silence gap is flagged long_gap_skipped by the repairer,
+    NOT bridged and NOT silently dropped: repair_transitions threads
+    max_gap_s=0.30 into the detector's glide budget, so the 0.5s silence_gap
+    must surface as an event, then be skipped with the flag and left
+    bit-exact. (Spec: 'Longer gaps (> max-gap-ms) are not bridged
+    automatically; they are flagged in the report JSON.')"""
+    sig, sr = make_audio_with_step(tmp_path, gap_s=0.5)
+    repaired, report = repair_transitions(sig, sr)
+    e = report["events"][0]
+    assert e["type"] == "silence_gap"
+    assert e["t1"] - e["t0"] > 0.30
+    assert "long_gap_skipped" in e["flags"]
+    entry = next(r for r in report["repaired"]
+                 if r["t0"] == e["t0"] and r["t1"] == e["t1"])
+    assert entry["skipped"] is True
+    # nothing was touched: the output is bit-identical to the input
+    np.testing.assert_array_equal(repaired, sig)
+
+
+def test_short_noise_burst_still_screech_with_mid_window_margins(tmp_path):
+    """A short screech burst (0.15s, shorter than the 2x100ms edge margins)
+    must still classify as screech: the margins are adaptive
+    (min(100ms, 30% of the window)), so the middle keeps a real measurement
+    region instead of collapsing into the full-window fallback or dropping
+    the event to step. Pins the spec contract that noise-bridged gaps are
+    always screech regardless of length."""
+    gap_s = 0.15
+    sig, sr = make_audio_with_step(tmp_path, gap_s=gap_s)
+    gap = int(gap_s * SR)
+    i0 = int(0.4 * SR)  # note A duration, noise goes into the silent gap
+    rng = np.random.default_rng(7)
+    from scipy import signal as sig_module
+    noise = rng.normal(0, 1, gap)
+    sos = sig_module.butter(4, [2000 / (SR / 2), 8000 / (SR / 2)],
+                            btype="bandpass", output="sos")
+    band_noise = sig_module.sosfilt(sos, noise) * 0.15
+    sig[i0:i0 + gap] += band_noise
+    f0 = extract_f0(sig, sr)
+    events = detect_transition_events(f0, sr, x=sig)
+    assert len(events) == 1
+    assert events[0]["type"] == "screech"
+
+
 def test_screech_classified_with_noise_between_notes(tmp_path):
     """Unpitched noise burst between two stable notes is classified
     screech: harvest locks F0 onto the noise erratically (or drops out),

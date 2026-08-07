@@ -146,14 +146,39 @@ def detect_transition_events(f0: np.ndarray, sr: int,
             i1 = int(t1 * sr)
             if i1 > i0:
                 w = int(0.025 * sr)
+                # Sample the bridging energy on the window MIDDLE only: the
+                # inter-note window's edges are the notes' fades/onsets, which
+                # carry energy even when the middle is true silence. Measuring
+                # the whole window reads the note edges and misclassifies a
+                # long true-silence gap as energy-bridged (the real HeartMuLa
+                # 39.2s bug: ~1.7s of -66..-85dB silence flanked by note A's
+                # tail and note B's onset — which starts ~370ms INSIDE the F0
+                # gap window at -15.8dB — was typed screech and "repaired"
+                # with a 2.3s synthesized glide). Exclude a ~100ms margin per
+                # side — adaptive (30% of the window) so short windows keep a
+                # proportionally smaller margin and the middle never collapses.
+                margin = min(int(0.100 * sr), int((i1 - i0) * 0.3))
+                mid_i0 = i0 + margin
+                mid_i1 = i1 - margin
+                if mid_i1 <= mid_i0:
+                    # margins would swallow the window entirely; the
+                    # min-window adjacent-notes case has no silence in the
+                    # middle anyway, so fall back to the whole window
+                    mid_i0, mid_i1 = i0, i1
                 rms = []
-                for m in range(i0, i1, w // 2):
-                    m2 = min(m + w, i1)  # never overrun the inter-note window
+                for m in range(mid_i0, mid_i1, w // 2):
+                    m2 = min(m + w, mid_i1)  # never overrun the middle region
                     if m2 <= m:
                         continue
                     rms.append(20 * np.log10(np.sqrt(np.mean(x[m:m2] ** 2)) + 1e-9))
                 rms_db = np.asarray(rms)
-                if rms_db.size and rms_db.max() < silence_db:
+                # silence_gap when the MIDDLE is dominated by true silence
+                # (median, not max: a real dropout's sung onset can extend
+                # hundreds of ms into the F0 gap window, so 'any loud window'
+                # would misread it as bridged). The bridged branch keeps the
+                # any-window max test: noise that bridges a gap is a screech
+                # defect even where it has quiet patches.
+                if rms_db.size and np.median(rms_db) < silence_db:
                     etype = "silence_gap"
                 elif rms_db.size and rms_db.max() >= screech_rms_db:
                     bridged = True  # energy bridges the gap (noise segment)
@@ -162,9 +187,13 @@ def detect_transition_events(f0: np.ndarray, sr: int,
                         region = f0[mid0:mid1]
                         if np.any(region == 0) or _erratic(region):
                             etype = "screech"
-        # The glide budget gates clean step/silence gaps only; a
-        # noise-bridged gap is a screech defect regardless of length.
-        if gap_s > glide_max_s and not bridged:
+        # The glide budget gates clean steps only: a long unvoiced-but-not-
+        # silent step gap is dropped as unrepairable. A true-silence gap
+        # longer than the budget must still surface so repair can flag it
+        # long_gap_skipped instead of bridging it (spec: longer gaps are
+        # flagged in the report, not bridged). A noise-bridged gap is a
+        # screech defect regardless of length.
+        if gap_s > glide_max_s and not bridged and etype != "silence_gap":
             j += 1
             continue
         events.append({
