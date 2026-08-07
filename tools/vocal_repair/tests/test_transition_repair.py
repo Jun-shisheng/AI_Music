@@ -3,10 +3,13 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from transition_repair import detect_transition_events, extract_f0  # noqa: E402
+from transition_repair import (  # noqa: E402
+    build_glide_f0, detect_transition_events, extract_f0, repair_transitions,
+)
 
 SR = 44100
 HOP = 256
@@ -168,3 +171,39 @@ def test_single_off_pitch_boundary_frame_tolerated():
     assert e["t1"] - e["t0"] >= 0.08
     assert abs(ST(e["f_a"]) - ST(220.0)) < 1.5
     assert abs(ST(e["f_b"]) - ST(311.127)) < 1.5
+
+
+def test_glide_f0_is_monotonic_and_ends_at_target(tmp_path):
+    # f_a=220Hz, f_b=440Hz over 200ms
+    t0, t1 = 0.0, 0.2
+    f0 = build_glide_f0(220.0, 440.0, t0, t1, SR)
+    assert abs(f0[0] - 220.0) < 2.0
+    assert abs(f0[-1] - 440.0) < 2.0
+    # log-frequency glide: monotonic in st
+    st = [ST(f) for f in f0]
+    assert all(st[i] <= st[i + 1] + 1e-6 for i in range(len(st) - 1))
+    assert f0[-1] > f0[0]
+
+
+def test_repair_step_preserves_outside_samples_bit_exact(tmp_path):
+    """Repairing a step keeps everything outside the event window bit-exact."""
+    sig, sr = make_audio_with_step(tmp_path, gap_s=0.15, jump_st=6.0)
+    x = sig
+    repaired, report = repair_transitions(x, sr)
+    assert len(report["events"]) >= 1
+    e = report["events"][0]
+    i0 = int(e["t0"] * sr)
+    i1 = int(e["t1"] * sr)
+    np.testing.assert_array_equal(repaired[:i0], x[:i0])
+    np.testing.assert_array_equal(repaired[i1:], x[i1:])
+    # the gap region should now contain audio (not silence)
+    gap = repaired[i0:i1]
+    assert np.sqrt(np.mean(gap ** 2)) > 1e-4
+
+
+def test_repair_idempotent_on_clean_signal(tmp_path):
+    t = np.arange(SR) / SR
+    sig = 0.6 * np.sin(2 * np.pi * 220 * t)
+    repaired, report = repair_transitions(sig, SR)
+    assert len(report["events"]) == 0
+    np.testing.assert_array_equal(repaired, sig)

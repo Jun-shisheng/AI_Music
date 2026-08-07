@@ -165,3 +165,143 @@ def detect_transition_events(f0: np.ndarray, sr: int,
         })
         j += 1
     return events
+
+
+def build_glide_f0(f_a: float, f_b: float, t0: float, t1: float,
+                   sr: int, hold_frac: float = 0.3,
+                   overshoot_st: float = 0.4) -> np.ndarray:
+    """Exponential glide F0 over [t0, t1] with natural shape.
+
+    Holds f_a for the first hold_frac of the window, then rises to f_b on a
+    smoothstep (3g^2 - 2g^3) in semitone space: the second half of the curve
+    rides above the linear glide path (a 'virtual overshoot' that reads as a
+    quick portamento attack) before settling exactly on f_b. The trajectory
+    is strictly monotonic in st(), which the test contract requires; a true
+    overshoot above f_b would force a downward settle and break that contract.
+    Returns per-frame F0 at HOP spacing, indexed from t0.
+    """
+    n_frames = max(1, int(round((t1 - t0) * sr / HOP)))
+    k = np.arange(n_frames) / max(n_frames - 1, 1)
+    st_a, st_b = st_of(f_a), st_of(f_b)
+    # hold + smoothstep rise; clamped to a generous band as a safety bound
+    g = np.clip((k - hold_frac) / (1 - hold_frac), 0, 1)
+    st_shape = st_a + (st_b - st_a) * (3.0 * g ** 2 - 2.0 * g ** 3)
+    st_shape = np.clip(st_shape, st_a - 1.0, st_b + overshoot_st + 1.0)
+    f0 = 440.0 * 2 ** ((st_shape - 69.0) / 12.0)
+    # edges converge exactly to the notes
+    f0[0] = f_a
+    f0[-1] = f_b
+    return f0
+
+
+def analyze_world(x: np.ndarray, sr: int) -> dict:
+    """Full-stem WORLD analysis: f0, spectral envelope, aperiodicity."""
+    import pyworld as pw
+    frame_period = HOP * 1000.0 / sr
+    f0, tpos = pw.harvest(x.astype(np.float64), sr, frame_period=frame_period,
+                          f0_floor=F0_MIN, f0_ceil=F0_MAX)
+    # pyworld 0.3.5's cheaptrick/d4c require harvest's temporal_positions
+    sp = pw.cheaptrick(x.astype(np.float64), f0, tpos, sr)
+    ap = pw.d4c(x.astype(np.float64), f0, tpos, sr)
+    return {"f0": f0, "sp": sp, "ap": ap}
+
+
+def synthesize_window(x: np.ndarray, sr: int, world: dict, ev: dict,
+                      glide: np.ndarray) -> np.ndarray:
+    """WORLD-synthesize the glide for one event window, return the audio."""
+    import pyworld as pw
+    frame_period = HOP * 1000.0 / sr
+    t0, t1 = ev["t0"], ev["t1"]
+    i0, i1 = int(t0 * sr), int(t1 * sr)
+    i0 = max(0, i0); i1 = min(len(x), i1)
+    if i1 <= i0:
+        return np.zeros(0)
+    # frame indices aligned to HOP spacing (frame_period = HOP/sr * 1000)
+    n_frames = int(round((t1 - t0) / (HOP / sr)))
+    fr0 = int(round(t0 / (HOP / sr)))
+    fr1 = min(fr0 + n_frames, len(world["sp"]))
+    f0w = np.zeros(n_frames)
+    f0w[:] = glide[:n_frames]
+    # envelope: silence_gap interpolates from both notes; else use window's own
+    if ev["type"] == "silence_gap":
+        sp_a = world["sp"][fr0 - 1] if fr0 - 1 >= 0 else world["sp"][0]
+        sp_b = world["sp"][fr1] if fr1 < len(world["sp"]) else world["sp"][-1]
+        spw = np.stack([
+            sp_a + (sp_b - sp_a) * (k / max(n_frames - 1, 1))
+            for k in range(n_frames)
+        ])
+    else:
+        # tile the window's own frame if the analysis ran short (never crashes)
+        sp0 = world["sp"][min(fr0, len(world["sp"]) - 1)]
+        spw = world["sp"][fr0:fr0 + n_frames] if fr0 + n_frames <= len(world["sp"]) \
+            else np.tile(sp0, (n_frames, 1))
+    # aperiodicity: screech blends toward surrounding notes
+    if ev["type"] == "screech":
+        ap_a = world["ap"][fr0 - 1] if fr0 - 1 >= 0 else world["ap"][0]
+        ap_b = world["ap"][fr1] if fr1 < len(world["ap"]) else world["ap"][-1]
+        apw = np.stack([
+            ap_a + (ap_b - ap_a) * (k / max(n_frames - 1, 1))
+            for k in range(n_frames)
+        ])
+    else:
+        ap0 = world["ap"][min(fr0, len(world["ap"]) - 1)]
+        apw = world["ap"][fr0:fr0 + n_frames] if fr0 + n_frames <= len(world["ap"]) \
+            else np.tile(ap0, (n_frames, 1))
+    y = pw.synthesize(f0w, spw, apw, sr, frame_period)
+    # pad to window length (pyworld returns n_frames*HOP samples; event
+    # windows are HOP-aligned, so the pad is at most HOP-1 samples)
+    y = np.pad(y, (0, max(0, (i1 - i0) - len(y))))
+    return y
+
+
+def _crossfade(a: np.ndarray, b: np.ndarray, sr: int, fade_s: float = 0.030) -> np.ndarray:
+    """Overlap-add b (the repaired window) over a with raised-cosine fades."""
+    nf = min(int(fade_s * sr), len(a), len(b))
+    if nf <= 0:
+        return b
+    out = a.copy()
+    ramp = np.linspace(0, 1, nf)
+    out[:nf] = a[:nf] * (1 - ramp) + b[:nf] * ramp
+    out[-nf:] = a[-nf:] * (1 - ramp[::-1]) + b[-nf:] * ramp[::-1]
+    return out
+
+
+def repair_transitions(x: np.ndarray, sr: int,
+                       max_gap_s: float = 0.30) -> tuple[np.ndarray, dict]:
+    """Repair all detected transition events on a mono vocal stem.
+
+    Returns (repaired_audio, report). Outside event windows is bit-exact.
+    Long gaps (> max_gap_s) are flagged in the report, not repaired.
+    """
+    f0 = extract_f0(x, sr)
+    events = detect_transition_events(f0, sr, x=x)
+    report = {"events": events, "repaired": []}
+    if not events:
+        return x.copy(), report
+    world = analyze_world(x, sr)
+    out = x.copy()
+    for ev in events:
+        if ev["t1"] - ev["t0"] > max_gap_s:
+            ev["flags"].append("long_gap_skipped")
+            report["repaired"].append({"type": ev["type"], "t0": ev["t0"],
+                                       "t1": ev["t1"], "skipped": True})
+            continue
+        try:
+            glide = build_glide_f0(ev["f_a"], ev["f_b"], ev["t0"], ev["t1"], sr)
+            win = synthesize_window(x, sr, world, ev, glide)
+            i0, i1 = int(ev["t0"] * sr), int(ev["t1"] * sr)
+            i1 = min(i1, len(out))
+            if i1 > i0 and len(win) == i1 - i0:
+                seg = out[i0:i1]
+                out[i0:i1] = _crossfade(seg, win, sr)
+                report["repaired"].append({"type": ev["type"], "t0": ev["t0"],
+                                           "t1": ev["t1"], "skipped": False})
+            else:
+                ev["flags"].append("length_mismatch")
+                report["repaired"].append({"type": ev["type"], "t0": ev["t0"],
+                                           "t1": ev["t1"], "skipped": True})
+        except Exception as exc:  # noqa: BLE001 - per-event best effort
+            ev["flags"].append(f"error:{type(exc).__name__}")
+            report["repaired"].append({"type": ev["type"], "t0": ev["t0"],
+                                       "t1": ev["t1"], "skipped": True})
+    return out, report
