@@ -30,6 +30,8 @@ SCREECH_RMS_DB = -45.0
 MIN_WINDOW_S = 0.10
 SCREECH_STD_ST = 2.5  # region voiced-frame st() spread marking erratic F0
 SCREECH_JITTER_ST = 2.0  # region mean frame-to-frame st() jump marking erratic F0
+FADE_S = 0.060  # crossfade length: 30ms clicked where the glide timbre
+                # differs sharply from the notes; 60ms keeps junctions smooth
 
 
 def st_of(hz: float | np.ndarray) -> float | np.ndarray:
@@ -244,9 +246,61 @@ def analyze_world(x: np.ndarray, sr: int) -> dict:
     return {"f0": f0, "sp": sp, "ap": ap}
 
 
+def _window_middle_silent(x: np.ndarray, i0: int, i1: int, sr: int) -> bool:
+    """True when the event window's middle is true silence (< silence_db).
+
+    Mirrors the detector's adaptive-margin middle measurement (min(100ms,
+    30%) per side) so the repair-side check agrees with the silence_gap
+    classification.
+    """
+    margin = min(int(0.100 * sr), int((i1 - i0) * 0.3))
+    mid_i0, mid_i1 = i0 + margin, i1 - margin
+    if mid_i1 <= mid_i0:
+        return False
+    rms = float(np.sqrt(np.mean(x[mid_i0:mid_i1] ** 2)))
+    return 20.0 * np.log10(rms + 1e-9) < SILENCE_DB
+
+
+def _note_interior_frame(f0: np.ndarray, start: int, step: int,
+                         f_ref: float, max_walk: int) -> int | None:
+    """Deepest frame within max_walk of `start` whose f0 is still on the note.
+
+    The frames right at an event-window edge are unreliable timbre references:
+    for a screech they are noise-locked (harvest locks F0 onto the noise, so
+    the spectrum is noise, not the note), and for a gap they are near-silent
+    fade frames (aperiodicity ~1.0, i.e. pure noise). Return the deepest frame
+    walking toward the note interior whose f0 still matches f_ref (within
+    1.5 st), or None when no such frame exists in the walk.
+    """
+    best = None
+    k = start
+    for _ in range(max_walk + 1):
+        if k < 0 or k >= len(f0):
+            break
+        if f0[k] > 0 and abs(st_of(f0[k]) - st_of(f_ref)) <= 1.5:
+            best = k
+        k += step
+    return best
+
+
 def synthesize_window(x: np.ndarray, sr: int, world: dict, ev: dict,
                       glide: np.ndarray) -> np.ndarray:
-    """WORLD-synthesize the glide for one event window, return the audio."""
+    """WORLD-synthesize the glide for one event window, return the audio.
+
+    Spectral envelope: silence_gap and screech interpolate between the two
+    surrounding notes' frames (a noise window's own envelope would impose a
+    noise spectrum on the pitched glide -> metallic/airy timbre that does not
+    match the sung notes); a step whose window is actually silent falls back
+    to the same interpolation. Other windows keep their own envelope.
+    Aperiodicity: whenever the envelope is interpolated (silence_gap,
+    screech, silent-window step) the aperiodicity is blended toward the
+    surrounding notes too — the silence frames' ap is ~1.0 (pure noise), so
+    without the blend the glide would be breathy/unvoiced; the notes' ap
+    carries their voicing (for screech this is the de-scream behavior).
+    The synthesized window is level-matched to the surrounding vocal (the
+    louder 30ms window-edge RMS), so a glide over a quiet region does not
+    jump out and one over a loud region does not dip.
+    """
     import pyworld as pw
     frame_period = HOP * 1000.0 / sr
     t0, t1 = ev["t0"], ev["t1"]
@@ -260,10 +314,23 @@ def synthesize_window(x: np.ndarray, sr: int, world: dict, ev: dict,
     fr1 = min(fr0 + n_frames, len(world["sp"]))
     f0w = np.zeros(n_frames)
     f0w[:] = glide[:n_frames]
-    # envelope: silence_gap interpolates from both notes; else use window's own
-    if ev["type"] == "silence_gap":
-        sp_a = world["sp"][fr0 - 1] if fr0 - 1 >= 0 else world["sp"][0]
-        sp_b = world["sp"][fr1] if fr1 < len(world["sp"]) else world["sp"][-1]
+    # envelope: silence_gap / screech interpolate from both notes; a step over
+    # true silence (degenerate: the window's own envelope would be silence, so
+    # the repair would do nothing audible) uses the same interpolation
+    interp_env = ev["type"] in ("silence_gap", "screech") or (
+        ev["type"] == "step" and _window_middle_silent(x, i0, i1, sr))
+    if interp_env:
+        # timbre references come from the note interiors, not the frames right
+        # at the window edge (noise-locked / near-silent fade frames would
+        # give the glide a noise spectrum or pure-noise aperiodicity)
+        max_walk = max(1, int(round(0.050 / (HOP / sr))))  # up to ~50ms inside
+        fa_fr = _note_interior_frame(world["f0"], fr0 - 1, -1, ev["f_a"],
+                                     max_walk)
+        fb_fr = _note_interior_frame(world["f0"], fr1, 1, ev["f_b"], max_walk)
+        sp_a = world["sp"][fa_fr] if fa_fr is not None else (
+            world["sp"][fr0 - 1] if fr0 - 1 >= 0 else world["sp"][0])
+        sp_b = world["sp"][fb_fr] if fb_fr is not None else (
+            world["sp"][fr1] if fr1 < len(world["sp"]) else world["sp"][-1])
         spw = np.stack([
             sp_a + (sp_b - sp_a) * (k / max(n_frames - 1, 1))
             for k in range(n_frames)
@@ -273,10 +340,14 @@ def synthesize_window(x: np.ndarray, sr: int, world: dict, ev: dict,
         sp0 = world["sp"][min(fr0, len(world["sp"]) - 1)]
         spw = world["sp"][fr0:fr0 + n_frames] if fr0 + n_frames <= len(world["sp"]) \
             else np.tile(sp0, (n_frames, 1))
-    # aperiodicity: screech blends toward surrounding notes
-    if ev["type"] == "screech":
-        ap_a = world["ap"][fr0 - 1] if fr0 - 1 >= 0 else world["ap"][0]
-        ap_b = world["ap"][fr1] if fr1 < len(world["ap"]) else world["ap"][-1]
+    # aperiodicity: interp-envelope cases blend toward the surrounding notes
+    # (their ap carries the voicing; silence frames' ap is ~1.0 = pure noise,
+    # which would make the glide breathy/unvoiced)
+    if interp_env:
+        ap_a = world["ap"][fa_fr] if fa_fr is not None else (
+            world["ap"][fr0 - 1] if fr0 - 1 >= 0 else world["ap"][0])
+        ap_b = world["ap"][fb_fr] if fb_fr is not None else (
+            world["ap"][fr1] if fr1 < len(world["ap"]) else world["ap"][-1])
         apw = np.stack([
             ap_a + (ap_b - ap_a) * (k / max(n_frames - 1, 1))
             for k in range(n_frames)
@@ -286,6 +357,20 @@ def synthesize_window(x: np.ndarray, sr: int, world: dict, ev: dict,
         apw = world["ap"][fr0:fr0 + n_frames] if fr0 + n_frames <= len(world["ap"]) \
             else np.tile(ap0, (n_frames, 1))
     y = pw.synthesize(f0w, spw, apw, sr, frame_period)
+    # level-match to the surrounding vocal: scale the window so its RMS equals
+    # the louder of the two 30ms edge levels (flat gain — the envelope
+    # interpolation already ramps timbre). Guard against all-silent edges.
+    edge_n = int(0.030 * sr)
+    edge_rms = []
+    if i0 - edge_n >= 0:
+        edge_rms.append(float(np.sqrt(np.mean(x[i0 - edge_n:i0] ** 2))))
+    if i1 + edge_n <= len(x):
+        edge_rms.append(float(np.sqrt(np.mean(x[i1:i1 + edge_n] ** 2))))
+    if edge_rms:
+        rms_target = max(edge_rms)
+        y_rms = float(np.sqrt(np.mean(y ** 2)))
+        if rms_target > 1e-6 and y_rms > 1e-12:
+            y = y * (rms_target / y_rms)
     # align to the window length: pyworld returns n_frames*HOP samples, and
     # rounding n_frames up (e.g. the 100ms min window at 48kHz gives 19
     # frames = 4864 > 4800) can overshoot the window by up to HOP-1 samples.
@@ -297,10 +382,14 @@ def synthesize_window(x: np.ndarray, sr: int, world: dict, ev: dict,
     return y
 
 
-def _crossfade(a: np.ndarray, b: np.ndarray, sr: int, fade_s: float = 0.030) -> np.ndarray:
+def _crossfade(a: np.ndarray, b: np.ndarray, sr: int,
+               fade_s: float = FADE_S) -> np.ndarray:
     """Blend a (original) and b (repaired window): left edge fades a->b,
     right edge fades b->a so the output ends on the original for continuity,
-    and the middle is b — the repair must reach the window interior."""
+    and the middle is b — the repair must reach the window interior. fade_s
+    defaults to FADE_S (60ms): long enough that junctions stay sample-
+    continuous even where the glide timbre differs sharply from the notes
+    (30ms clicked when the timbres mismatched)."""
     nf = min(int(fade_s * sr), len(a), len(b))
     if nf <= 0:
         return b

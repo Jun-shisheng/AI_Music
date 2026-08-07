@@ -7,7 +7,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from transition_repair import (  # noqa: E402
-    build_glide_f0, detect_transition_events, extract_f0, repair_transitions,
+    FADE_S, analyze_world, build_glide_f0, detect_transition_events,
+    extract_f0, repair_transitions, synthesize_window,
 )
 
 SR = 44100
@@ -51,6 +52,20 @@ def make_audio_with_step(tmp_path, gap_s=0.2, jump_st=6.0, f0_a=220.0):
         _tone(f0_b, note_dur, sr),
     ])
     return sig.astype(np.float64), sr
+
+
+def _screech_signal(sr=SR, gap_s=0.25):
+    """Two stable notes with a bandpassed noise burst in the gap (screech)."""
+    sig, sr = make_audio_with_step(None, gap_s=gap_s)
+    gap = int(gap_s * sr)
+    i0 = int(0.4 * sr)  # note A duration, noise goes into the silent gap
+    rng = np.random.default_rng(7)
+    from scipy import signal as sig_module
+    noise = rng.normal(0, 1, gap)
+    sos = sig_module.butter(4, [2000 / (sr / 2), 8000 / (sr / 2)],
+                            btype="bandpass", output="sos")
+    sig[i0:i0 + gap] += sig_module.sosfilt(sos, noise) * 0.15
+    return sig, sr
 
 
 def test_detects_pitch_step_with_silent_gap(tmp_path):
@@ -218,6 +233,70 @@ def test_long_screech_window_is_repaired_not_skipped(tmp_path):
     assert np.any(f0_win > 0)
 
 
+def test_screech_repair_produces_voiced_level_matched_glide(tmp_path):
+    """The screech repair must replace the noise with a pitched glide whose
+    spectral envelope (and aperiodicity) come from the surrounding notes,
+    level-matched to them.
+
+    The old code synthesized the glide with the noise window's own spectral
+    envelope -> the pitched glide carries a noise spectrum, which sounds
+    metallic/airy and does not match the sung notes; harvest re-locks onto it
+    erratically (measured voiced fraction 0.41 for this signal). With the
+    interpolated envelope + aperiodicity blend the window is a clean pitched
+    glide: >= 50% voiced frames, and the window RMS within 3x of the notes
+    (measured 0.92x).
+    """
+    sig, sr = _screech_signal()
+    repaired, report = repair_transitions(sig, sr)
+    screeches = [e for e in report["events"] if e["type"] == "screech"]
+    assert len(screeches) >= 1
+    e = screeches[0]
+    entry = next(r for r in report["repaired"]
+                 if r["t0"] == e["t0"] and r["t1"] == e["t1"])
+    assert entry["skipped"] is False
+    i0, i1 = int(e["t0"] * sr), int(e["t1"] * sr)
+    win = repaired[i0:i1]
+    # the noise is replaced by a pitched glide
+    assert np.mean(extract_f0(win, sr) > 0) >= 0.5
+    # level-matched to the surrounding notes
+    note_rms = np.sqrt(np.mean(sig[int(0.1 * sr):int(0.3 * sr)] ** 2))
+    win_rms = np.sqrt(np.mean(win ** 2))
+    assert note_rms / 3.0 <= win_rms <= 3.0 * note_rms, (
+        f"window RMS {win_rms:.3e} vs note RMS {note_rms:.3e}")
+
+
+def test_silent_window_step_gets_real_glide():
+    """A step event whose window is true silence must get a real glide, not a
+    near-silent repair: the envelope (and aperiodicity) are interpolated from
+    the surrounding notes and the window is level-matched to them.
+
+    A true-silence middle is normally classified silence_gap by the detector
+    (repair never sees a silent 'step' from repair_transitions), so this
+    exercises the repair-side fallback directly: detect with x=None (events
+    stay 'step'), then synthesize the event's window. The old code used the
+    silent window's own (silent) envelope -> RMS ~1e-8, an inaudible repair;
+    with the fallback the window is a voiced glide at note level.
+    """
+    sig, sr = make_audio_with_step(None, gap_s=0.15)
+    f0 = extract_f0(sig, sr)
+    events = detect_transition_events(f0, sr)  # x=None: no silence re-typing
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["type"] == "step"
+    # the event window's middle is true silence (the detector's adaptive
+    # margin; the 0.15s zero gap fills the window except B's fade-in tail)
+    i0, i1 = int(ev["t0"] * sr), int(ev["t1"] * sr)
+    margin = min(int(0.100 * sr), int((i1 - i0) * 0.3))
+    mid = sig[i0 + margin:i1 - margin]
+    assert np.sqrt(np.mean(mid ** 2)) < 1e-3
+    glide = build_glide_f0(ev["f_a"], ev["f_b"], ev["t0"], ev["t1"], sr)
+    world = analyze_world(sig, sr)
+    win = synthesize_window(sig, sr, world, ev, glide)
+    assert len(win) == i1 - i0
+    assert np.sqrt(np.mean(win ** 2)) > 1e-3  # was ~1e-8 with the silent envelope
+    assert np.mean(extract_f0(win, sr) > 0) > 0.5
+
+
 def test_adjacent_zero_gap_notes_detected_from_f0():
     """Two fully-voiced adjacent notes (zero-length gap) must split cleanly:
     the running median is computed over the current segment only, so the
@@ -280,7 +359,14 @@ def test_glide_f0_is_monotonic_and_ends_at_target(tmp_path):
 
 
 def test_repair_step_preserves_outside_samples_bit_exact(tmp_path):
-    """Repairing a step keeps everything outside the event window bit-exact."""
+    """Repairing a step keeps everything outside the event window bit-exact.
+
+    The repaired window must also be level-matched to the notes it bridges:
+    the old code synthesized near-silence for quiet windows (measured RMS
+    3e-2 for this signal, ~13x below the note level), which made the repair
+    inaudible; with the edge-level match the window sits within 0.5x-2x of
+    the note RMS.
+    """
     sig, sr = make_audio_with_step(tmp_path, gap_s=0.15, jump_st=6.0)
     x = sig
     repaired, report = repair_transitions(x, sr)
@@ -293,6 +379,11 @@ def test_repair_step_preserves_outside_samples_bit_exact(tmp_path):
     # the gap region should now contain audio (not silence)
     gap = repaired[i0:i1]
     assert np.sqrt(np.mean(gap ** 2)) > 1e-4
+    # level-matched to the notes: neither a loud jump-out nor an inaudible dip
+    note_rms = np.sqrt(np.mean(x[int(0.05 * sr):int(0.35 * sr)] ** 2))
+    win_rms = np.sqrt(np.mean(gap ** 2))
+    assert 0.5 * note_rms <= win_rms <= 2.0 * note_rms, (
+        f"window RMS {win_rms:.3e} vs note RMS {note_rms:.3e}")
 
 
 def test_repair_idempotent_on_clean_signal(tmp_path):
@@ -343,25 +434,27 @@ def test_no_click_at_fade_junctions(tmp_path):
     the b-side fade junction the synthesized glide jumped back to the
     original silence: measured max |delta| = 0.0217 for this signal at
     44.1kHz. The fixed crossfade (out = b.copy()) makes each junction a
-    consecutive-sample pair inside one continuous signal: measured max
-    |delta| = 0.0019. The spec's 0.05 bound passes even on the buggy code
-    for true-silence gaps (the synthesized glide is quiet, RMS ~1.3e-2,
-    because its spectral envelope interpolates near-silent frames), so the
-    bound is tightened to 0.015: fails the old code (0.0217 > 0.015),
-    passes the fixed code (0.0019 < 0.015, ~8x margin).
+    consecutive-sample pair inside one continuous signal. The fade is now
+    FADE_S = 60ms (30ms clicked where the glide timbre differs sharply from
+    the notes) and the glide is level-matched to the notes, so the junction
+    deltas are the glide's own per-sample slope: measured max |delta| =
+    0.0193 for this signal. The bound is therefore raised to 0.03 (a 4-
+    partial glide at full note level legitimately reaches ~0.019; a hard
+    junction discontinuity — a level jump of 0.1+, as a reverted crossfade
+    would produce with the loud glide — still fails the bound).
     """
     sig, sr = make_audio_with_step(tmp_path, gap_s=0.2)
     repaired, report = repair_transitions(sig, sr)
     e = report["events"][0]
     i0, i1 = int(e["t0"] * sr), int(e["t1"] * sr)
-    nf = int(0.030 * sr)  # the code's crossfade fade_s
+    nf = int(FADE_S * sr)  # the code's crossfade fade_s (60ms)
     deltas = [
         abs(repaired[i0 - 1] - repaired[i0]),
         abs(repaired[i0 + nf - 1] - repaired[i0 + nf]),
         abs(repaired[i1 - 1] - repaired[i1]),
         abs(repaired[i1 - nf - 1] - repaired[i1 - nf]),
     ]
-    assert max(deltas) < 0.015, f"click at a fade junction: {max(deltas):.4f}"
+    assert max(deltas) < 0.03, f"click at a fade junction: {max(deltas):.4f}"
 
 
 def test_48k_min_window_repair_not_skipped():
