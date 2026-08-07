@@ -88,3 +88,62 @@ def test_no_events_on_steady_sine(tmp_path):
     f0 = extract_f0(sig, SR)
     events = detect_transition_events(f0, SR)
     assert len(events) == 0
+
+
+def test_silence_gap_classified_with_audio(tmp_path):
+    """True-silence gap between notes is classified silence_gap, not
+    screech: the 25ms RMS window must not overrun into note B's onset."""
+    gap_s = 0.2
+    sig, sr = make_audio_with_step(tmp_path, gap_s=gap_s)
+    f0 = extract_f0(sig, sr)
+    events = detect_transition_events(f0, sr, x=sig)
+    assert len(events) == 1
+    assert events[0]["type"] == "silence_gap"
+
+
+def test_screech_classified_with_noise_between_notes(tmp_path):
+    """Unpitched noise burst between two stable notes is classified
+    screech: harvest locks F0 onto the noise erratically (or drops out),
+    so the energy-bridged region is a screech defect."""
+    sig, sr = make_audio_with_step(tmp_path, gap_s=0.25)
+    gap = int(0.25 * SR)
+    i0 = int(0.4 * SR)  # note A duration, noise goes into the silent gap
+    rng = np.random.default_rng(7)
+    from scipy import signal as sig_module
+    noise = rng.normal(0, 1, gap)
+    sos = sig_module.butter(4, [2000 / (SR / 2), 8000 / (SR / 2)],
+                            btype="bandpass", output="sos")
+    band_noise = sig_module.sosfilt(sos, noise) * 0.15
+    sig[i0:i0 + gap] += band_noise
+    f0 = extract_f0(sig, sr)
+    events = detect_transition_events(f0, sr, x=sig)
+    assert len(events) == 1
+    assert events[0]["type"] == "screech"
+
+
+def test_adjacent_zero_gap_notes_detected_from_f0():
+    """Two fully-voiced adjacent notes (zero-length gap) must split cleanly:
+    the running median is computed over the current segment only, so the
+    6-st step produces exactly one step event with the min window enforced."""
+    f0 = np.concatenate([np.full(60, 220.0), np.full(60, 311.127)])
+    events = detect_transition_events(f0, SR)
+    assert len(events) == 1
+    e = events[0]
+    assert e["type"] == "step"
+    assert e["t1"] - e["t0"] >= 0.08
+    assert abs(ST(e["f_a"]) - ST(220.0)) < 1.5
+    assert abs(ST(e["f_b"]) - ST(311.127)) < 1.5
+
+
+def test_single_off_pitch_boundary_frame_tolerated():
+    """One off-pitch frame at the note boundary must not fragment the
+    segmentation: only >= 2 consecutive deviant frames start a new note."""
+    f0 = np.concatenate([np.full(60, 220.0), np.array([287.5]),
+                         np.full(59, 311.127)])
+    events = detect_transition_events(f0, SR)
+    assert len(events) == 1
+    e = events[0]
+    assert e["type"] == "step"
+    assert e["t1"] - e["t0"] >= 0.08
+    assert abs(ST(e["f_a"]) - ST(220.0)) < 1.5
+    assert abs(ST(e["f_b"]) - ST(311.127)) < 1.5
