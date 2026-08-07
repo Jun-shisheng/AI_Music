@@ -281,7 +281,10 @@ def repair_transitions(x: np.ndarray, sr: int,
     world = analyze_world(x, sr)
     out = x.copy()
     for ev in events:
-        if ev["t1"] - ev["t0"] > max_gap_s:
+        # The max_gap_s cap gates clean step/silence gaps only; screech
+        # windows are energy-bridged (noise, not silence) so they are always
+        # repaired regardless of length (see detect_transition_events).
+        if ev["type"] != "screech" and ev["t1"] - ev["t0"] > max_gap_s:
             ev["flags"].append("long_gap_skipped")
             report["repaired"].append({"type": ev["type"], "t0": ev["t0"],
                                        "t1": ev["t1"], "skipped": True})

@@ -124,6 +124,39 @@ def test_screech_classified_with_noise_between_notes(tmp_path):
     assert events[0]["type"] == "screech"
 
 
+def test_long_screech_window_is_repaired_not_skipped(tmp_path):
+    """A screech window longer than max_gap_s (0.30s) must still be repaired:
+    screech gaps are energy-bridged (noise), not true silence, so the
+    max_gap_s cap gates only non-screech events. The spec's "longer gaps are
+    not bridged automatically" refers to silence_gap only; a real-world
+    screech (e.g. the ~337ms HeartMuLa 49.5s defect) must not be skipped."""
+    gap_s = 0.40  # event window will exceed the 0.30s max_gap_s default
+    sig, sr = make_audio_with_step(tmp_path, gap_s=gap_s)
+    gap = int(gap_s * SR)
+    i0 = int(0.4 * SR)  # note A duration, noise goes into the silent gap
+    rng = np.random.default_rng(7)
+    from scipy import signal as sig_module
+    noise = rng.normal(0, 1, gap)
+    sos = sig_module.butter(4, [2000 / (SR / 2), 8000 / (SR / 2)],
+                            btype="bandpass", output="sos")
+    band_noise = sig_module.sosfilt(sos, noise) * 0.15
+    sig[i0:i0 + gap] += band_noise
+    repaired, report = repair_transitions(sig, sr)
+    screeches = [e for e in report["events"] if e["type"] == "screech"]
+    assert len(screeches) >= 1
+    e = screeches[0]
+    assert e["t1"] - e["t0"] > 0.30  # the event window exceeds max_gap_s
+    assert "long_gap_skipped" not in e["flags"]
+    entry = next(r for r in report["repaired"]
+                 if r["t0"] == e["t0"] and r["t1"] == e["t1"])
+    assert entry["skipped"] is False
+    # the repaired window now carries a pitched glide (noise replaced)
+    i0s = int(e["t0"] * sr)
+    i1s = int(e["t1"] * sr)
+    f0_win = extract_f0(repaired[i0s:i1s], sr)
+    assert np.any(f0_win > 0)
+
+
 def test_adjacent_zero_gap_notes_detected_from_f0():
     """Two fully-voiced adjacent notes (zero-length gap) must split cleanly:
     the running median is computed over the current segment only, so the
