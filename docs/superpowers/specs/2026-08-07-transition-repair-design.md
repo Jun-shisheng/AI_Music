@@ -38,7 +38,9 @@ Input: vocal stem (any sr, mono-converted), pyworld F0 at 5ms frame period.
 
 - **step** (硬跳变): two stable notes (>=150ms, pitch within +/-1 st of running
   median) separated by <=300ms with |delta_st| >= 2.0 where the pitch change is
-  concentrated in <=5 consecutive frames (no glide). Event window = gap between notes.
+  concentrated in <=5 consecutive frames (no glide). Event window = gap between
+  notes, with a minimum window of 100ms centered on the transition point when
+  the notes are adjacent (zero-length gap).
 - **silence_gap** (静音断裂): notes with true silence between them (25ms RMS
   < -60dB across the whole gap) and gap <= `--max-gap-ms` (default 300ms).
 - **screech** (尖啸): >=60ms segment between two voiced notes with energy
