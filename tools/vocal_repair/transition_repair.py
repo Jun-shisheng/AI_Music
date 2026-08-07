@@ -10,7 +10,6 @@ from __future__ import annotations
 import numpy as np
 
 HOP = 256
-N_FFT = 2048
 F0_MIN = 90.0
 F0_MAX = 900.0
 MIN_NOTE_S = 0.15
@@ -24,8 +23,8 @@ SCREECH_STD_ST = 2.5  # region voiced-frame st() spread marking erratic F0
 SCREECH_JITTER_ST = 2.0  # region mean frame-to-frame st() jump marking erratic F0
 
 
-def st_of(hz: float) -> float:
-    return 12 * np.log2(max(hz, 1.0) / 440.0) + 69.0
+def st_of(hz: float | np.ndarray) -> float | np.ndarray:
+    return 12 * np.log2(np.maximum(hz, 1.0) / 440.0) + 69.0
 
 
 def extract_f0(x: np.ndarray, sr: int) -> np.ndarray:

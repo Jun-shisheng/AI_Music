@@ -135,6 +135,27 @@ def test_adjacent_zero_gap_notes_detected_from_f0():
     assert abs(ST(e["f_b"]) - ST(311.127)) < 1.5
 
 
+def test_all_voiced_erratic_bridge_classified_as_screech():
+    """An all-voiced, harvest-locked-noise bridge between two stable notes
+    must be classified screech via the erratic-F0 branch: rapid frame-to-frame
+    pitch jumps with zero unvoiced frames (so np.any(region == 0) is False and
+    _erratic() must decide). Exercises the ndarray path of st_of()."""
+    rng = np.random.default_rng(42)
+    walk = np.empty(20)
+    walk[0] = 400.0
+    for k in range(1, 20):
+        walk[k] = min(700.0, max(150.0, walk[k - 1] + rng.uniform(-180, 180)))
+    f0 = np.concatenate([np.full(40, 220.0), walk, np.full(40, 311.127)])
+    assert np.all(f0 > 0)  # the bridge must be fully voiced
+    n = int(len(f0) * FRAME_S * SR)
+    x = rng.normal(0, 1, n)  # any nonzero-energy audio passes the RMS bridge check
+    events = detect_transition_events(f0, SR, x=x)
+    assert len(events) == 1
+    e = events[0]
+    assert e["type"] == "screech"
+    assert e["t1"] - e["t0"] >= len(walk) * FRAME_S - 0.02
+
+
 def test_single_off_pitch_boundary_frame_tolerated():
     """One off-pitch frame at the note boundary must not fragment the
     segmentation: only >= 2 consecutive deviant frames start a new note."""
