@@ -168,25 +168,23 @@ def detect_transition_events(f0: np.ndarray, sr: int,
 
 
 def build_glide_f0(f_a: float, f_b: float, t0: float, t1: float,
-                   sr: int, hold_frac: float = 0.3,
-                   overshoot_st: float = 0.4) -> np.ndarray:
+                   sr: int, hold_frac: float = 0.3) -> np.ndarray:
     """Exponential glide F0 over [t0, t1] with natural shape.
 
-    Holds f_a for the first hold_frac of the window, then rises to f_b on a
-    smoothstep (3g^2 - 2g^3) in semitone space: the second half of the curve
-    rides above the linear glide path (a 'virtual overshoot' that reads as a
-    quick portamento attack) before settling exactly on f_b. The trajectory
-    is strictly monotonic in st(), which the test contract requires; a true
-    overshoot above f_b would force a downward settle and break that contract.
+    Holds f_a for the first hold_frac of the window, then moves from f_a to
+    f_b on a smoothstep (3g^2 - 2g^3) in semitone space. The smoothstep's
+    output stays within [0, 1] of its argument, so the trajectory is a
+    monotonically curved portamento that stays between st_a and st_b and
+    converges exactly onto f_b; the test contract requires strict monotonic
+    st() (no true overshoot, which would force a downward settle).
     Returns per-frame F0 at HOP spacing, indexed from t0.
     """
     n_frames = max(1, int(round((t1 - t0) * sr / HOP)))
     k = np.arange(n_frames) / max(n_frames - 1, 1)
     st_a, st_b = st_of(f_a), st_of(f_b)
-    # hold + smoothstep rise; clamped to a generous band as a safety bound
+    # hold + smoothstep rise (bounded in [st_a, st_b] by construction)
     g = np.clip((k - hold_frac) / (1 - hold_frac), 0, 1)
     st_shape = st_a + (st_b - st_a) * (3.0 * g ** 2 - 2.0 * g ** 3)
-    st_shape = np.clip(st_shape, st_a - 1.0, st_b + overshoot_st + 1.0)
     f0 = 440.0 * 2 ** ((st_shape - 69.0) / 12.0)
     # edges converge exactly to the notes
     f0[0] = f_a
@@ -200,7 +198,9 @@ def analyze_world(x: np.ndarray, sr: int) -> dict:
     frame_period = HOP * 1000.0 / sr
     f0, tpos = pw.harvest(x.astype(np.float64), sr, frame_period=frame_period,
                           f0_floor=F0_MIN, f0_ceil=F0_MAX)
-    # pyworld 0.3.5's cheaptrick/d4c require harvest's temporal_positions
+    # pyworld 0.3.5 signatures (verified in the venv): cheaptrick/d4c take
+    # (x, f0, temporal_positions, fs, ...) — harvest's tpos is required;
+    # there is no frame_period kwarg form, it raises TypeError.
     sp = pw.cheaptrick(x.astype(np.float64), f0, tpos, sr)
     ap = pw.d4c(x.astype(np.float64), f0, tpos, sr)
     return {"f0": f0, "sp": sp, "ap": ap}
@@ -248,18 +248,25 @@ def synthesize_window(x: np.ndarray, sr: int, world: dict, ev: dict,
         apw = world["ap"][fr0:fr0 + n_frames] if fr0 + n_frames <= len(world["ap"]) \
             else np.tile(ap0, (n_frames, 1))
     y = pw.synthesize(f0w, spw, apw, sr, frame_period)
-    # pad to window length (pyworld returns n_frames*HOP samples; event
-    # windows are HOP-aligned, so the pad is at most HOP-1 samples)
-    y = np.pad(y, (0, max(0, (i1 - i0) - len(y))))
+    # align to the window length: pyworld returns n_frames*HOP samples, and
+    # rounding n_frames up (e.g. the 100ms min window at 48kHz gives 19
+    # frames = 4864 > 4800) can overshoot the window by up to HOP-1 samples.
+    # The excess sits inside the right crossfade tail, so truncating is safe.
+    target = i1 - i0
+    y = np.pad(y, (0, max(0, target - len(y))))
+    if len(y) > target:
+        y = y[:target]
     return y
 
 
 def _crossfade(a: np.ndarray, b: np.ndarray, sr: int, fade_s: float = 0.030) -> np.ndarray:
-    """Overlap-add b (the repaired window) over a with raised-cosine fades."""
+    """Blend a (original) and b (repaired window): left edge fades a->b,
+    right edge fades b->a so the output ends on the original for continuity,
+    and the middle is b — the repair must reach the window interior."""
     nf = min(int(fade_s * sr), len(a), len(b))
     if nf <= 0:
         return b
-    out = a.copy()
+    out = b.copy()
     ramp = np.linspace(0, 1, nf)
     out[:nf] = a[:nf] * (1 - ramp) + b[:nf] * ramp
     out[-nf:] = a[-nf:] * (1 - ramp[::-1]) + b[-nf:] * ramp[::-1]
@@ -274,7 +281,10 @@ def repair_transitions(x: np.ndarray, sr: int,
     Long gaps (> max_gap_s) are flagged in the report, not repaired.
     """
     f0 = extract_f0(x, sr)
-    events = detect_transition_events(f0, sr, x=x)
+    # The detector's glide budget must match the caller's max_gap_s, or gaps
+    # longer than the hard-coded 0.30s would be dropped before repair sees
+    # them and the long_gap_skipped flag would be dead with defaults.
+    events = detect_transition_events(f0, sr, x=x, glide_max_s=max_gap_s)
     report = {"events": events, "repaired": []}
     if not events:
         return x.copy(), report

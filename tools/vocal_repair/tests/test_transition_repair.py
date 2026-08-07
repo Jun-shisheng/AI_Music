@@ -3,7 +3,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -240,3 +239,90 @@ def test_repair_idempotent_on_clean_signal(tmp_path):
     repaired, report = repair_transitions(sig, SR)
     assert len(report["events"]) == 0
     np.testing.assert_array_equal(repaired, sig)
+
+
+def test_silence_gap_repair_fills_window_with_glide(tmp_path):
+    """A silence_gap repair must actually fill the window with a voiced
+    glide, not leave the middle bit-identical silence.
+
+    The old crossfade (out = a.copy()) blended only the 30ms edges, so the
+    window middle stayed pure silence (measured RMS exactly 0.0 at 25%/50%/
+    75% of the window). With the fixed crossfade the middle is synthesized
+    audio and everything outside the window stays bit-exact.
+    """
+    gap_s = 0.2
+    sig, sr = make_audio_with_step(tmp_path, gap_s=gap_s)
+    repaired, report = repair_transitions(sig, sr)
+    e = report["events"][0]
+    assert e["type"] == "silence_gap"
+    entry = next(r for r in report["repaired"]
+                 if r["t0"] == e["t0"] and r["t1"] == e["t1"])
+    assert entry["skipped"] is False
+    i0, i1 = int(e["t0"] * sr), int(e["t1"] * sr)
+    seg = repaired[i0:i1]
+    n = len(seg)
+    # window middle is now audio (was bit-identical silence before the fix)
+    for f in (0.25, 0.5, 0.75):
+        k = int(f * n)
+        rms = np.sqrt(np.mean(seg[k:k + int(0.01 * sr)] ** 2))
+        assert rms > 1e-4, f"window {f*100:.0f}% point RMS {rms:.2e} is silence"
+    # a glide was synthesized (not noise/silence): re-extracted F0 is voiced
+    f0_win = extract_f0(seg, sr)
+    assert np.mean(f0_win > 0) >= 0.5
+    # outside the window everything is bit-exact
+    np.testing.assert_array_equal(repaired[:i0], sig[:i0])
+    np.testing.assert_array_equal(repaired[i1:], sig[i1:])
+
+
+def test_no_click_at_fade_junctions(tmp_path):
+    """The crossfade junctions must be sample-continuous (no click).
+
+    The old crossfade (out = a.copy()) blended only the 30ms edges, so at
+    the b-side fade junction the synthesized glide jumped back to the
+    original silence: measured max |delta| = 0.0217 for this signal at
+    44.1kHz. The fixed crossfade (out = b.copy()) makes each junction a
+    consecutive-sample pair inside one continuous signal: measured max
+    |delta| = 0.0019. The spec's 0.05 bound passes even on the buggy code
+    for true-silence gaps (the synthesized glide is quiet, RMS ~1.3e-2,
+    because its spectral envelope interpolates near-silent frames), so the
+    bound is tightened to 0.015: fails the old code (0.0217 > 0.015),
+    passes the fixed code (0.0019 < 0.015, ~8x margin).
+    """
+    sig, sr = make_audio_with_step(tmp_path, gap_s=0.2)
+    repaired, report = repair_transitions(sig, sr)
+    e = report["events"][0]
+    i0, i1 = int(e["t0"] * sr), int(e["t1"] * sr)
+    nf = int(0.030 * sr)  # the code's crossfade fade_s
+    deltas = [
+        abs(repaired[i0 - 1] - repaired[i0]),
+        abs(repaired[i0 + nf - 1] - repaired[i0 + nf]),
+        abs(repaired[i1 - 1] - repaired[i1]),
+        abs(repaired[i1 - nf - 1] - repaired[i1 - nf]),
+    ]
+    assert max(deltas) < 0.015, f"click at a fade junction: {max(deltas):.4f}"
+
+
+def test_48k_min_window_repair_not_skipped():
+    """At 48kHz the 100ms minimum event window is 19 WORLD frames = 4864
+    synthesized samples > 4800 (the window length), so pyworld's output
+    used to be padded, never truncated, and the event was skipped with a
+    length_mismatch flag. The glide must be truncated to the window and
+    repaired (the excess sits inside the right crossfade tail anyway).
+    """
+    sr = 48000
+    f0_a, f0_b = 220.0, 220.0 * 2 ** (6 / 12)
+    gap = 0.02  # below the 100ms min window -> the min-window path triggers
+    sig = np.concatenate([
+        _tone(f0_a, 0.4, sr),
+        np.zeros(int(gap * sr)),
+        _tone(f0_b, 0.4, sr),
+    ]).astype(np.float64)
+    repaired, report = repair_transitions(sig, sr)
+    assert len(report["events"]) == 1
+    e = report["events"][0]
+    assert e["type"] == "step"
+    assert e["t1"] - e["t0"] >= 0.095  # the 100ms min window was enforced
+    assert "length_mismatch" not in e["flags"]
+    entry = next(r for r in report["repaired"]
+                 if r["t0"] == e["t0"] and r["t1"] == e["t1"])
+    assert entry["skipped"] is False
