@@ -41,14 +41,22 @@ Input: vocal stem (any sr, mono-converted), pyworld F0 at 5ms frame period.
   concentrated in <=5 consecutive frames (no glide). Event window = gap between
   notes, with a minimum window of 100ms centered on the transition point when
   the notes are adjacent (zero-length gap).
-- **silence_gap** (静音断裂): notes with true silence between them (25ms RMS
-  < -60dB across the whole gap) and gap <= `--max-gap-ms` (default 300ms).
-- **screech** (尖啸): >=60ms segment between two voiced notes with energy
-  (25ms RMS > -45dB) but F0 == 0. Event window = segment + short margins.
+- **silence_gap** (静音断裂): notes with true silence between them. Energy is
+  measured on the **middle** of the inter-note window (adaptive margins of
+  min(100ms, 30% of the window) per side, clamped windows): the middle RMS
+  median < -60dB classifies silence_gap (median over max, because note-onset
+  audio can contaminate up to ~370ms into the F0 gap window on real stems).
+  Gap <= `--max-gap-ms` (default 300ms).
+- **screech** (尖啸): >=60ms segment between two voiced notes with energy in
+  the middle of the window (25ms RMS max >= -45dB) but F0 == 0 or erratic
+  (harvest-locked noise: std of st_of over voiced frames > 2.5 st OR mean
+  |frame-to-frame st diff| > 2.0 st). Event window = segment + short margins.
 
-Longer gaps (> max-gap-ms, e.g. the 1.3s at 39s) are **not** bridged automatically;
-they are flagged in the report JSON as `long_gap` candidates so the user can
-opt in via a larger `--max-gap-ms` for A/B listening.
+Longer gaps (> max-gap-ms, e.g. the 1.3s at 39s) surface as `silence_gap`
+events but are **not** bridged automatically; they are flagged in the report
+JSON as `long_gap_skipped` so the user can opt in via a larger `--max-gap-ms`
+for A/B listening. Screech windows (energy-bridged) are always repaired
+regardless of length.
 
 Output: `[{type, t0, t1, f_a, f_b, flags}]` (times in seconds, f in Hz).
 
