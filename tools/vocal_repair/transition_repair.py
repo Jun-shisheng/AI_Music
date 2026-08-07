@@ -4,10 +4,19 @@ Detects three defect classes at note transitions (pitch step without glide,
 true-silence gap, unpitched screech segment) and resynthesizes only the
 detected windows with a WORLD portamento glide, leaving everything else
 bit-exact. See docs/superpowers/specs/2026-08-07-transition-repair-design.md.
+
+Usage:
+    python transition_repair.py <vocals.wav> <out.wav> [--max-gap-ms N] [--report report.json]
+    python transition_repair.py <song.wav> <out.wav> --work-dir <dir>  # full pipeline
 """
 from __future__ import annotations
 
+import argparse
+import json
+from pathlib import Path
+
 import numpy as np
+import soundfile as sf
 
 HOP = 256
 F0_MIN = 90.0
@@ -318,3 +327,95 @@ def repair_transitions(x: np.ndarray, sr: int,
             report["repaired"].append({"type": ev["type"], "t0": ev["t0"],
                                        "t1": ev["t1"], "skipped": True})
     return out, report
+
+
+def _apply_stereo(y: np.ndarray, out_mono: np.ndarray, report: dict,
+                  sr: int) -> np.ndarray:
+    """Blend the repaired mono into the original channels, window-only.
+
+    Keeps each channel's original samples everywhere except the actually
+    repaired event windows (report entries with skipped=False), where the
+    repaired mono replaces both channels. This preserves the design's
+    construction guarantee (bit-exact outside windows) for real stereo
+    stems — mono-mixing the whole file would rewrite every sample.
+    """
+    if y.ndim == 1:
+        return np.clip(out_mono, -1, 1)
+    in_win = np.zeros(len(y), dtype=bool)
+    for e in report["repaired"]:
+        if not e["skipped"]:
+            i0 = int(e["t0"] * sr)
+            i1 = min(int(e["t1"] * sr), len(y))
+            if i1 > i0:
+                in_win[i0:i1] = True
+    final = y.astype(np.float64)
+    final[in_win, 0] = out_mono[in_win]
+    final[in_win, 1] = out_mono[in_win]
+    return np.clip(final, -1, 1)
+
+
+def _repair_wav(input_wav: Path, output: Path, max_gap_s: float,
+                report_path: Path | None) -> dict:
+    """Repair a raw vocal stem file, write PCM_16 WAV (+ optional JSON report)."""
+    y, sr = sf.read(input_wav, always_2d=True)
+    x = y.mean(axis=1).astype(np.float64) if y.ndim > 1 else y.astype(np.float64)
+    out, report = repair_transitions(x, sr, max_gap_s=max_gap_s)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(output, _apply_stereo(y, out, report, sr), sr, subtype="PCM_16")
+    if report_path:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2),
+                               encoding="utf-8")
+    return report
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Repair pitch-transition defects on a vocal stem")
+    parser.add_argument("input", type=Path,
+                        help="vocal stem (raw mode) or song WAV (full mode)")
+    parser.add_argument("output", type=Path, help="output WAV path")
+    parser.add_argument("--max-gap-ms", type=float, default=300.0,
+                        help="longest clean gap (ms) to bridge; longer gaps are "
+                             "flagged long_gap_skipped, not repaired")
+    parser.add_argument("--report", type=Path, default=None,
+                        help="write the event/repair JSON report here")
+    parser.add_argument("--work-dir", type=Path, default=None,
+                        help="full mode: demucs/frame/noise/transition work dir")
+    args = parser.parse_args()
+
+    if args.work_dir is not None:
+        # full mode: demucs separate -> frame repair -> noise floor ->
+        # transition repair -> remix (mirrors the FastAPI queue hook, Task 6).
+        # stem_pipeline is imported lazily so raw mode never needs demucs/ffmpeg.
+        from stem_pipeline import remix, separate_with_demucs
+        song_work = args.work_dir / args.input.stem
+        vocals, instrumental = separate_with_demucs(args.input, song_work)
+        from frame_repair import repair_vocals
+        from noise_floor_reducer import reduce_noise_floor
+        reduced = song_work / "vocals_noise_reduced.wav"
+        reduce_noise_floor(vocals, reduced)
+        repaired = song_work / "vocals_frame_repaired.wav"
+        repair_vocals(reduced, repaired)
+        y2, sr2 = sf.read(repaired, always_2d=True)
+        x2 = y2.mean(axis=1).astype(np.float64) if y2.ndim > 1 else y2.astype(np.float64)
+        out2, report = repair_transitions(x2, sr2, max_gap_s=args.max_gap_ms / 1000.0)
+        staged = song_work / "vocals_transition_repaired.wav"
+        sf.write(staged, _apply_stereo(y2, out2, report, sr2), sr2, subtype="PCM_16")
+        remix(instrumental, staged, args.output)
+        if args.report:
+            args.report.parent.mkdir(parents=True, exist_ok=True)
+            args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2),
+                                   encoding="utf-8")
+        print(f"full pipeline: repaired {len(report['repaired'])} events -> {args.output}")
+        return 0
+
+    # raw mode: single vocal stem
+    report = _repair_wav(args.input, args.output, args.max_gap_ms / 1000.0,
+                         args.report)
+    print(f"repaired {len(report['repaired'])} events -> {args.output}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
