@@ -67,6 +67,9 @@ async def _process_job(job_id: str):
                 instrumental=job.instrumental,
                 duration_seconds=job.duration_seconds,
                 loopable=job.loopable,
+                # Without this the job's type never reached the generator, so
+                # "sound effect" and "song" produced the same thing.
+                generation_type=job.generation_type or "song",
             )
 
             job.status = "succeeded"

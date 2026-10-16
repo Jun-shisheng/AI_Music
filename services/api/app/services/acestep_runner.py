@@ -15,6 +15,53 @@ from app.config import settings
 BACKEND = settings.acestep_backend
 ACESTEP_DIR = settings.acestep_dir
 
+GENERATION_TYPES = ("song", "bgm_loop", "sfx")
+
+# A sound effect has no natural length; a song's does. 10 s is the API's floor.
+SFX_DEFAULT_SECONDS = 10
+
+_TYPE_PROMPT_BITS: dict[str, list[str]] = {
+    "song": [],
+    "bgm_loop": ["game background music", "instrumental", "no vocals"],
+    "sfx": ["sound effect", "no music", "no vocals"],
+}
+_LOOP_PROMPT_BITS = ["seamless loop", "loopable", "clean loop point"]
+
+
+def resolve_request(
+    generation_type: str,
+    instrumental: bool,
+    duration_seconds: int | None,
+    loopable: bool,
+) -> dict:
+    """Turn the API's generation type into what the model is actually asked for.
+
+    `generation_type` is part of the request contract the front end sends
+    (`song` / `bgm_loop` / `sfx`), but it used to be stored on the job and never
+    reach the generator -- choosing "sound effect" produced exactly what
+    "song" produced. One function decides the mapping so the contract cannot
+    drift again, and so it can be tested without a model:
+
+      song      vocals allowed; the lyrics decide everything else
+      bgm_loop  instrumental, seamless, framed as looping background music
+      sfx       instrumental and explicitly non-musical, short by default
+    """
+    if generation_type not in GENERATION_TYPES:
+        raise ValueError(
+            f"Unknown generation_type {generation_type!r}; expected one of "
+            f"{', '.join(GENERATION_TYPES)}")
+    instrumental = instrumental or generation_type != "song"
+    loopable = loopable or generation_type == "bgm_loop"
+    if generation_type == "sfx" and not duration_seconds:
+        duration_seconds = SFX_DEFAULT_SECONDS
+    prompt_bits = list(_TYPE_PROMPT_BITS[generation_type])
+    if generation_type == "song" and instrumental:
+        prompt_bits += ["instrumental", "no vocals"]
+    if loopable:
+        prompt_bits += _LOOP_PROMPT_BITS
+    return {"instrumental": instrumental, "duration_seconds": duration_seconds,
+            "loopable": loopable, "prompt_bits": prompt_bits}
+
 
 def _ensure_output_dir():
     Path(settings.output_dir).mkdir(parents=True, exist_ok=True)
@@ -27,16 +74,20 @@ async def generate(
     instrumental: bool = False,
     duration_seconds: int | None = None,
     loopable: bool = False,
+    generation_type: str = "song",
 ) -> Path:
     _ensure_output_dir()
+    req = resolve_request(generation_type, instrumental, duration_seconds, loopable)
 
     if BACKEND == "subprocess":
         return await _generate_subprocess(
-            lyrics, style_prompt, output_path, instrumental, duration_seconds, loopable
+            lyrics, style_prompt, output_path, req["instrumental"],
+            req["duration_seconds"], req["prompt_bits"]
         )
     elif BACKEND == "api":
         return await _generate_api(
-            lyrics, style_prompt, output_path, instrumental, duration_seconds, loopable
+            lyrics, style_prompt, output_path, req["instrumental"],
+            req["duration_seconds"], req["prompt_bits"]
         )
     else:
         raise ValueError(f"Unknown ACESTEP_BACKEND: {BACKEND}")
@@ -48,7 +99,7 @@ async def _generate_subprocess(
     output_path: str,
     instrumental: bool,
     duration_seconds: int | None,
-    loopable: bool,
+    prompt_bits: list[str],
 ) -> Path:
     """Call ACE-Step via uv run acestep-api in one-shot mode.
 
@@ -61,9 +112,7 @@ async def _generate_subprocess(
     lyrics_path = output_dir / "lyrics_input.txt"
     lyrics_path.write_text(lyrics, encoding="utf-8")
 
-    prompt = style_prompt
-    if loopable:
-        prompt = f"{prompt}, seamless loop, loopable game background music"
+    prompt = ", ".join(p for p in [style_prompt, *prompt_bits] if p)
 
     # Build ACE-Step config JSON
     config = {
@@ -123,7 +172,7 @@ async def _generate_api(
     output_path: str,
     instrumental: bool,
     duration_seconds: int | None,
-    loopable: bool,
+    prompt_bits: list[str],
 ) -> Path:
     """Call ACE-Step's REST API server (acestep-api).
 
@@ -132,11 +181,7 @@ async def _generate_api(
     import httpx
 
     api_url = settings.acestep_api_url
-    prompt = style_prompt
-    if instrumental:
-        prompt += ", instrumental, no vocals"
-    if loopable:
-        prompt += ", seamless loop, loopable game background music, clean loop point"
+    prompt = ", ".join(p for p in [style_prompt, *prompt_bits] if p)
 
     payload = {
         "prompt": prompt,

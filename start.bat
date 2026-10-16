@@ -3,7 +3,12 @@ setlocal enabledelayedexpansion
 
 title AI Music Studio
 
-set "ROOT=G:\AI_Music"
+:: Locate the repository from this script's own path, so a fresh clone works
+:: wherever it was checked out. Override with AI_MUSIC_ROOT if you keep the
+:: weights somewhere else. (This used to be hardcoded to one machine's drive.)
+if not defined AI_MUSIC_ROOT set "AI_MUSIC_ROOT=%~dp0"
+if "%AI_MUSIC_ROOT:~-1%"=="\" set "AI_MUSIC_ROOT=%AI_MUSIC_ROOT:~0,-1%"
+set "ROOT=%AI_MUSIC_ROOT%"
 set "ACESTEP_DIR=%ROOT%\vendor\ACE-Step-1.5"
 set "ACESTEP_VENV=%ACESTEP_DIR%\.venv\Scripts\python.exe"
 set "CHECKPOINTS=%ACESTEP_DIR%\checkpoints"

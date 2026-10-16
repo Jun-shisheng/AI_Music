@@ -145,16 +145,44 @@ Three rules that came out of building this, each of them the hard way:
 
 ## Getting started with the studio prototype
 
-`services/api` + `apps/web` are the earlier front end/back end pair (arrange with
-an LLM → queue → render → library). They expect a local model server; see
-`.env.example` and `docs/devlog.md`. They are kept as a working reference, not as
-the recommended path — the measured pipeline above is what this project actually
-runs on today.
+`services/api` + `apps/web` are a front end/back end pair around a local model:
+arrange with an LLM → queue → render → library, all on `127.0.0.1`. They are kept
+as a working reference for the interactive path; the measured pipeline above is
+what this project actually runs for deliveries.
+
+**The API contract is written down in [`docs/api.md`](docs/api.md)** — every
+endpoint, its payloads, the `generation_type` mapping, and the failure semantics.
+Change one side of the interface by changing that document too.
 
 ```bash
-cp .env.example .env         # set your LLM API key here; .env is gitignored
-cd services/api && pip install -r requirements.txt && python -m uvicorn app.main:app
+cp .env.example .env         # set DEEPSEEK_API_KEY for /arrange; .env is gitignored
+pip install -r services/api/requirements.txt
+
+# 1. a model checkout + weights next to the repo (not versioned; ~10 GB)
+python scripts/download_models.py
+# 2. optionally the model's own API server, if ACESTEP_BACKEND=api
+# 3. backend, then front end
+cd services/api && python -m uvicorn app.main:app --port 8000
+cd apps/web && npm install && npx next dev --port 3000
 ```
+
+`start.bat` does all of the above on Windows, and locates the repository from its
+own path — set `AI_MUSIC_ROOT` if the weights live somewhere else.
+
+### Three kinds of generation
+
+`POST /generate` takes a `generation_type`, and the back end turns it into what
+the model is actually asked for:
+
+| `generation_type` | what it produces | how the request differs |
+|---|---|---|
+| `song` | a sung song (or an instrumental, via `instrumental: true`) | nothing added |
+| `bgm_loop` | seamlessly looping background music | instrumental, `seamless loop / loopable / clean loop point` |
+| `sfx` | a sound effect | non-musical, no vocals, 10 s unless a duration is given |
+
+So one API covers **music and sound effects**; the mapping lives in one place
+(`resolve_request()` in `services/api/app/services/acestep_runner.py`) and is
+covered by tests, so the UI cannot promise a type the pipeline ignores.
 
 ## License
 

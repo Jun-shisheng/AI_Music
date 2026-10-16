@@ -84,7 +84,7 @@ async def test_get_job_includes_audio_url_when_audio_exists():
         lyrics="[Verse] done",
         style_prompt="pop",
         status="succeeded",
-        audio_path="G:/AI_Music/outputs/manual.wav",
+        audio_path="outputs/manual.wav",
     )
     with SessionLocal() as session:
         session.add(job)

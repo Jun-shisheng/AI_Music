@@ -52,7 +52,7 @@ async def test_library_includes_audio_url_for_completed_jobs():
         lyrics="[Verse] listen",
         style_prompt="piano",
         status="succeeded",
-        audio_path="G:/AI_Music/outputs/playable.wav",
+        audio_path="outputs/playable.wav",
     )
     with SessionLocal() as session:
         session.add(job)
