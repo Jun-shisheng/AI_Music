@@ -1,6 +1,8 @@
 ﻿.superpowers/
 __pycache__/
 .env
+.env.bak
+.env.backup
 .venv/
 venv/
 node_modules/
@@ -15,3 +17,22 @@ outputs/
 data/
 *.db
 *.sqlite3
+
+# --- private working data (added 2026-10-16) -------------------------------
+# Never publish: reference recordings, song briefs and lyric files, run logs,
+# archives, and the clone of the private delivery repo.
+inputs/
+logs/
+human_refs/
+_archive/
+.cache/
+.firecrawl/
+.tools/
+.npm-cache/
+.pytest_cache/
+.superpowers/
+PR_AIMusic_Extension/
+PR_AIMusic_Lyric_Template/
+*.m4a
+*.opus
+*.aiff
