@@ -1,9 +1,12 @@
+# Routine version updates run monthly to keep the pull-request queue small.
+# Security updates are a separate repository setting and remain enabled; this
+# schedule does not delay them.
 version: 2
 updates:
   - package-ecosystem: pip
     directory: /services/api
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     labels:
       - dependencies
@@ -11,7 +14,7 @@ updates:
   - package-ecosystem: npm
     directory: /apps/web
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     labels:
       - dependencies
@@ -19,7 +22,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     labels:
       - dependencies
