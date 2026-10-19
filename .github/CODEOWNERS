@@ -1,0 +1,7 @@
+# Review routing. The project is currently maintained by one person; keep this
+# file so new areas have an explicit owner as the project grows.
+*                       @Jun-shisheng
+/services/api/          @Jun-shisheng
+/apps/web/              @Jun-shisheng
+/tools/                 @Jun-shisheng
+/.github/               @Jun-shisheng

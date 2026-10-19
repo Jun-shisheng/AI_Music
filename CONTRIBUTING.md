@@ -43,6 +43,32 @@ The repository uses **GitHub Flow**. There is no long-lived `develop` branch:
 Releases are annotated tags on `main` using `v0.x.y` (semantic versioning). A
 release note lists user-visible changes and any API-contract change.
 
+### Branch protection
+
+Recommended settings for `main` (maintainers configure these in the GitHub
+repository settings):
+
+- require a pull request before merging;
+- require the CI checks to pass: `backend (ubuntu-latest)`,
+  `backend (windows-latest)` and `frontend`;
+- require conversation resolution before merging;
+- disallow force pushes and branch deletion;
+- keep **enforce for administrators** off while the project has a single
+  maintainer, so the owner can still recover from a broken state. Turn it on
+  once there are two active maintainers.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and on every pull
+request:
+
+- backend tests on Ubuntu and Windows with Python 3.11;
+- `npm ci && npm run build` for the frontend.
+
+A red CI run is a blocker. Fix it in the same branch; do not merge with a
+failing required check. Dependabot opens weekly dependency PRs using the same CI
+and review rules.
+
 ## Commits
 
 Use [Conventional Commits](https://www.conventionalcommits.org/):
@@ -89,9 +115,20 @@ Review and merge:
 - One maintainer review is required; more than one for API or queue changes.
 - Address review comments with new commits, then squash-merge.
 - Delete the branch after merge.
+- Aim for a focused diff under roughly 400 changed lines. Split a larger
+  change into reviewable pull requests.
 
 For a large or breaking change, open an RFC issue first and agree on the shape
 before writing code.
+
+## Releases
+
+1. Move the relevant entries from `[Unreleased]` to a new version section in
+   `CHANGELOG.md`.
+2. Tag the release on `main`: `git tag -a v0.X.Y -m "v0.X.Y"`.
+3. Push the tag: `git push origin v0.X.Y`.
+4. Publish the GitHub release from the tag, using the changelog entry as the
+   notes.
 
 ## Code style
 
