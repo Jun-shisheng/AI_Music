@@ -15,6 +15,7 @@ LLM step that writes lyrics.
   <img src="https://img.shields.io/badge/status-alpha-yellow" alt="Alpha">
   <img src="https://img.shields.io/badge/tests-49%20passing-brightgreen" alt="49 tests">
   <img src="https://img.shields.io/badge/PRs-welcome-8b5cf6" alt="PRs welcome">
+  <a href="https://github.com/Jun-shisheng/AI_Music/actions/workflows/ci.yml"><img src="https://github.com/Jun-shisheng/AI_Music/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
 ---

@@ -8,7 +8,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Planned
 
-- GitHub Actions CI for backend tests and the frontend build
 - Pluggable generation backends behind a documented adapter protocol
 - Open recipe format with example recipes
 - SSE job progress and a waveform player
@@ -29,7 +28,8 @@ First public snapshot of the local studio and the measurement toolkit.
 - `generation_type` contract for `song`, `bgm_loop` and `sfx`.
 - Queue restart recovery, atomic job claiming and empty-output detection.
 - Contribution workflow: `CONTRIBUTING.md`, PR and issue templates,
-  `CODEOWNERS`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, and Dependabot.
+  `CODEOWNERS`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, CI and Dependabot.
+- GitHub Actions CI: backend tests on Ubuntu and Windows, frontend build.
 - README sections for the measured engine comparison, hardware limits, the
   8 GB laptop vocal-noise problem, roadmap and FAQ.
 
