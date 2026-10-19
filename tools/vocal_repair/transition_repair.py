@@ -467,8 +467,10 @@ def _apply_stereo(y: np.ndarray, out_mono: np.ndarray, report: dict,
             if i1 > i0:
                 in_win[i0:i1] = True
     final = y.astype(np.float64)
-    final[in_win, 0] = out_mono[in_win]
-    final[in_win, 1] = out_mono[in_win]
+    # sf.read(..., always_2d=True) returns mono as (n, 1); indexing channel 1
+    # unconditionally used to crash every mono stem at write time.
+    for channel in range(final.shape[1]):
+        final[in_win, channel] = out_mono[in_win]
     return np.clip(final, -1, 1)
 
 
@@ -506,11 +508,19 @@ def main() -> int:
         # full mode: demucs separate -> frame repair -> noise floor ->
         # transition repair -> remix (mirrors the FastAPI queue hook, Task 6).
         # stem_pipeline is imported lazily so raw mode never needs demucs/ffmpeg.
-        from stem_pipeline import remix, separate_with_demucs
+        try:
+            from stem_pipeline import remix, separate_with_demucs
+            from frame_repair import repair_vocals
+            from noise_floor_reducer import reduce_noise_floor
+        except ImportError as exc:
+            ap.error(
+                "--work-dir needs the deprecated vocal_repair stem pipeline "
+                "(stem_pipeline.py, frame_repair.py, noise_floor_reducer.py), "
+                "which is not shipped in this repository. Use raw mode, or "
+                f"restore those modules. Missing: {exc.name}"
+            )
         song_work = args.work_dir / args.input.stem
         vocals, instrumental = separate_with_demucs(args.input, song_work)
-        from frame_repair import repair_vocals
-        from noise_floor_reducer import reduce_noise_floor
         reduced = song_work / "vocals_noise_reduced.wav"
         reduce_noise_floor(vocals, reduced)
         repaired = song_work / "vocals_frame_repaired.wav"

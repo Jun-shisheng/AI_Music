@@ -27,7 +27,6 @@ function CreateContent() {
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<JobStatus | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Load data from localStorage (set by studio page) or URL params
   useEffect(() => {
@@ -69,17 +68,24 @@ function CreateContent() {
   // Poll job status
   useEffect(() => {
     if (!jobId) return;
-    pollRef.current = setInterval(async () => {
+    let cancelled = false;
+    let polling = false;
+    const timer = setInterval(async () => {
+      if (cancelled || polling) return;
+      polling = true;
       try {
         const j = await getJob(jobId);
+        if (cancelled) return;
         setJob(j);
         if (j.status === 'succeeded' || j.status === 'failed') {
-          if (pollRef.current) clearInterval(pollRef.current);
+          clearInterval(timer);
         }
       } catch { /* ignore */ }
+      finally { polling = false; }
     }, 2000);
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      cancelled = true;
+      clearInterval(timer);
     };
   }, [jobId]);
 
@@ -102,10 +108,12 @@ function CreateContent() {
   }, [form.lyrics]);
 
   const stylePrompt = styleToPrompt(form.style);
+  const canSubmit = form.instrumental || !!form.lyrics.trim();
+  const jobActive = !!jobId && (!job || job.status === 'queued' || job.status === 'running');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.lyrics.trim()) return;
+    if (submitting || jobActive || !canSubmit) return;
 
     setSubmitting(true);
     setError(null);
@@ -116,6 +124,7 @@ function CreateContent() {
         style_prompt: stylePrompt,
         instrumental: form.instrumental,
       });
+      setJob(null);
       setJobId(res.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -137,16 +146,15 @@ function CreateContent() {
     failed: 'text-[var(--error)]',
   };
 
-  const canSubmit = form.lyrics.trim();
-
   return (
     <div className="max-w-5xl mx-auto p-6">
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Left: Lyrics & Metadata */}
         <section className="lg:col-span-3 space-y-4">
           <div>
-            <h2 className="text-lg font-semibold">专业创作</h2>
-            <p className="text-sm text-[var(--text-muted)] mt-1">
+            <p className="eyebrow">Create</p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight">专业创作</h2>
+            <p className="mt-1.5 text-sm text-[var(--text-muted)]">
               编辑歌词与风格，提交出歌任务。
             </p>
           </div>
@@ -162,7 +170,7 @@ function CreateContent() {
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 placeholder="可选，AI 会帮你起名"
-                className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg p-2.5 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)]/50 focus:outline-none focus:border-[var(--accent)]"
+                className="field py-2.5"
               />
             </div>
 
@@ -176,8 +184,8 @@ function CreateContent() {
                 ref={lyricsRef}
                 value={form.lyrics}
                 onChange={(e) => setForm({ ...form, lyrics: e.target.value })}
-                className="w-full h-56 mt-1.5 bg-[var(--surface)] border border-[var(--border)] rounded-lg p-3 text-sm text-[var(--text)] font-mono resize-y focus:outline-none focus:border-[var(--accent)]"
-                placeholder={`[Intro]&#10;...&#10;[Verse]&#10;...&#10;[Chorus]&#10;...&#10;[Outro]`}
+                className="field mt-1.5 h-56 resize-y font-mono"
+                placeholder={'[Intro]\n\n[Verse]\n\n[Chorus]\n\n[Outro]'}
               />
             </div>
 
@@ -187,7 +195,7 @@ function CreateContent() {
                 <label className="block text-xs text-[var(--text-muted)] mb-1">
                   风格 Prompt
                 </label>
-                <code className="block bg-[var(--surface)] border border-[var(--border)] rounded-lg p-2.5 text-xs text-[var(--text-muted)] leading-relaxed break-all">
+                <code className="panel block break-all p-3 text-xs leading-relaxed text-[var(--text-muted)]">
                   {stylePrompt}
                 </code>
               </div>
@@ -212,16 +220,16 @@ function CreateContent() {
 
             <button
               type="submit"
-              disabled={submitting || !!jobId || !canSubmit}
-              className="w-full py-2.5 rounded-lg bg-[var(--accent)] text-white text-sm font-medium disabled:opacity-40 hover:shadow-[0_0_24px_var(--accent-glow)] transition-shadow"
+              disabled={submitting || jobActive || !canSubmit}
+              className="btn-primary w-full"
             >
-              {submitting ? '提交中...' : jobId ? '任务已提交' : '提交出歌任务'}
+              {submitting ? '提交中...' : jobActive ? '任务已提交' : '提交出歌任务'}
             </button>
           </form>
 
           {/* Job Status */}
           {(jobId || job) && (
-            <section className="border border-[var(--border)] rounded-lg p-4 space-y-4">
+            <section className="panel space-y-4 p-4">
               <h3 className="text-sm font-semibold">任务状态</h3>
 
               {jobId && !job && (
@@ -276,7 +284,7 @@ function CreateContent() {
 
         {/* Right: Style Picker */}
         <aside className="lg:col-span-2">
-          <div className="sticky top-6 border border-[var(--border)] rounded-lg p-4 bg-[var(--surface)]">
+          <div className="panel sticky top-24 p-4">
             <h3 className="text-sm font-semibold mb-4">风格配置</h3>
             <StylePicker
               value={form.style}

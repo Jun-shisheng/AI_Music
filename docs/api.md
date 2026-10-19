@@ -20,8 +20,11 @@ browser  ──►  Next.js dev server (localhost:3000)
 ```
 
 - The browser never talks to port 8000 directly: `apps/web/next.config.js`
-  rewrites `/api/*` and strips the prefix. Change the port in **both**
-  `next.config.js` and `.env` (`API_PORT`) if 8000 is taken.
+  rewrites `/api/*` and strips the prefix. For a custom backend port, pass
+  `--port` to uvicorn and set `API_PROXY_TARGET=http://127.0.0.1:<port>` when
+  starting Next dev or building Next for production. `.env`'s `API_PORT` alone
+  does not configure either CLI. `start.bat` uses ports 8765, 8000 and 3000 and
+  exits on conflicts without killing the processes that own those ports.
 - CORS is restricted to `http://localhost:3000` (`app/main.py`). Serving the UI
   from another origin needs that list updated.
 - Both services bind `127.0.0.1` only; nothing is exposed to the network.
@@ -35,7 +38,7 @@ browser  ──►  Next.js dev server (localhost:3000)
 | `POST` | `/generate` | Queue a generation job |
 | `GET` | `/jobs/{id}` | Job status, and the result when finished |
 | `GET` | `/library` | All jobs, newest first (`?status=` filters) |
-| `GET` | `/audio/{filename}` | Serves a generated file from `OUTPUT_DIR` |
+| `GET` | `/audio/{filename}` | Serves a generated `.wav` that is a direct child of `OUTPUT_DIR`; anything else is a 404 |
 
 ### POST /arrange
 
@@ -95,6 +98,11 @@ request that goes to the model, and `test_generation_type.py` pins the mapping.
 | `bgm_loop` | never | as asked | `game background music, instrumental, no vocals, seamless loop, loopable, clean loop point` |
 | `sfx` | never | defaults to **10 s** if not set | `sound effect, no music, no vocals` |
 
+When the resolved request is instrumental (`instrumental: true`, `bgm_loop`,
+or `sfx`), lyrics are replaced with `[Instrumental]` before storage and before
+calling the backend, even if the caller supplied vocal lyrics. The job and
+library therefore show the effective lyrics used for generation.
+
 ### GET /jobs/{id}
 
 ```jsonc
@@ -104,7 +112,7 @@ request that goes to the model, and `test_generation_type.py` pins the mapping.
   "instrumental": false, "generation_type": "song",
   "duration_seconds": 120, "loopable": false, "variation_label": null,
   "status": "queued | running | succeeded | failed",
-  "audio_path": "outputs/abc123.wav",   // absolute path on the server
+  "audio_path": "outputs/abc123.wav",   // path relative to the API's cwd
   "audio_url": "/audio/abc123.wav",     // what the UI should play
   "error": null,                        // populated when status == "failed"
   "created_at": "2026-07-15T17:00:00", "updated_at": "2026-07-15T17:02:11"
@@ -114,6 +122,14 @@ request that goes to the model, and `test_generation_type.py` pins the mapping.
 `status` is the only field the UI polls on; a job that fails carries the
 generator's message in `error` rather than an HTTP error, so a failed song is
 visible in the library instead of vanishing.
+
+Run the API with a **single worker process**. Queue recovery at startup marks
+interrupted `running` jobs as failed and restores `queued` jobs from the database.
+Within that process, each queued job is claimed once; duplicate queue entries
+cannot restart running or finished jobs. Stopping the worker records an
+interrupted job as failed immediately. A missing or empty output file is a failed
+generation. Restart recovery does not resume or cancel work in the separate
+ACE-Step server; multi-process queue coordination is not implemented.
 
 ### GET /library
 
@@ -128,10 +144,9 @@ message rather than a crash:
 1. **The model checkout** at `vendor/ACE-Step-1.5` (or `ACESTEP_DIR` in `.env`).
    `scripts/download_models.py` and `start.bat` fetch ~10 GB of weights into
    `vendor/ACE-Step-1.5/checkpoints`.
-2. **A CUDA PyTorch** in that checkout's venv — the runner talks to it either
-   through ACE-Step's REST API (`ACESTEP_BACKEND=api`, needs the server on
-   `ACESTEP_API_URL`) or through a one-shot CLI subprocess
-   (`ACESTEP_BACKEND=subprocess`).
+2. **A CUDA PyTorch** in that checkout's venv — the runner talks to ACE-Step's
+   REST API (`ACESTEP_BACKEND=api`, needs the server on `ACESTEP_API_URL`).
+   `ACESTEP_BACKEND=subprocess` is unsupported and returns an explicit error.
 3. **`OUTPUT_DIR`** must be writable; generated WAVs land there and are served
    back through `/audio/{filename}`.
 

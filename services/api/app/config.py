@@ -16,7 +16,10 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/app.db"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
-    acestep_backend: str = "subprocess"
+    # `api` talks to the ACE-Step REST server that start.bat launches. The old
+    # `subprocess` path cannot work: ACE-Step's run_blocking_generate needs the
+    # server's app_state/handlers, not just a request object.
+    acestep_backend: str = "api"
     acestep_api_url: str = "http://127.0.0.1:8765"
     # Defaults to the checkout sitting next to this repository, so a fresh clone
     # works wherever it was cloned instead of inheriting the path of the machine

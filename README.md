@@ -156,18 +156,25 @@ Change one side of the interface by changing that document too.
 
 ```bash
 cp .env.example .env         # set DEEPSEEK_API_KEY for /arrange; .env is gitignored
-pip install -r services/api/requirements.txt
+pip install -r services/api/requirements-dev.txt   # runtime + test deps
 
 # 1. a model checkout + weights next to the repo (not versioned; ~10 GB)
 python scripts/download_models.py
-# 2. optionally the model's own API server, if ACESTEP_BACKEND=api
-# 3. backend, then front end
+# 2. the model's own API server on 127.0.0.1:8765 (the default ACESTEP_BACKEND=api)
+# 3. tests, backend, then front end
+cd services/api && python -m pytest -q
 cd services/api && python -m uvicorn app.main:app --port 8000
-cd apps/web && npm install && npx next dev --port 3000
+cd apps/web && npm install && npm run dev
 ```
 
-`start.bat` does all of the above on Windows, and locates the repository from its
-own path — set `AI_MUSIC_ROOT` if the weights live somewhere else.
+After installing the API dependencies in the root `.venv` (or
+`services/api/.venv`), the ACE-Step checkout and its own `.venv`, and the frontend
+dependencies, `start.bat` downloads missing model weights and starts the three
+services on Windows. It locates the repository from its own path; set
+`AI_MUSIC_ROOT` to use another repository root. Missing prerequisites, occupied
+ports, and readiness timeouts stop startup with an error. Existing processes are
+never killed automatically. The launcher and `npm run dev` / `npm start` bind
+the frontend to `127.0.0.1`.
 
 ### Three kinds of generation
 

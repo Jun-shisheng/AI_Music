@@ -68,6 +68,11 @@ def brief_folders(root: Path | None = None) -> list[Path]:
     works whatever it is called.
     """
     base = root or (PROJECT_ROOT / "inputs")
+    if not base.is_dir():
+        # `inputs/` is gitignored, so a fresh clone has none. Callers rely on
+        # an empty list here; raising would kill a delivery before it copies
+        # its first track.
+        return []
     return sorted(p for p in base.iterdir()
                   if p.is_dir() and any(p.glob("*_lyrics.txt")))
 

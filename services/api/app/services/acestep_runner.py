@@ -1,14 +1,15 @@
 """ACE-Step 1.5 runner interface.
 
-Supports:
-- api: call ACE-Step's REST API server (recommended)
-- subprocess: call ACE-Step CLI via uv run (one-shot, no server needed)
+The supported backend is `api`: talk to the ACE-Step REST server that
+`start.bat` launches on ACESTEP_API_URL. The old one-shot `subprocess` path is
+kept only as a named seam for tests -- ACE-Step 1.5's blocking generator needs
+the server's app_state and handlers, so it cannot be called from a bare
+`python -c`.
 """
 
 import json
 import asyncio
 from pathlib import Path
-from urllib.parse import unquote, urlparse, parse_qs
 
 from app.config import settings
 
@@ -78,6 +79,9 @@ async def generate(
 ) -> Path:
     _ensure_output_dir()
     req = resolve_request(generation_type, instrumental, duration_seconds, loopable)
+    # Instrumental mode must also replace stale lyrics from an earlier vocal
+    # request; prompt additions alone do not stop the model from singing them.
+    lyrics = "[Instrumental]" if req["instrumental"] else lyrics
 
     if BACKEND == "subprocess":
         return await _generate_subprocess(
@@ -101,69 +105,19 @@ async def _generate_subprocess(
     duration_seconds: int | None,
     prompt_bits: list[str],
 ) -> Path:
-    """Call ACE-Step via uv run acestep-api in one-shot mode.
+    """Unsupported one-shot path, kept as a named seam for tests.
 
-    Writes a JSON config and pipes it through CLI.
+    ACE-Step 1.5's `run_blocking_generate()` is keyword-only and needs ~21
+    runtime objects owned by the API server (app_state, model store, LLM
+    handler, generation callbacks). A fresh `python -c` process cannot supply
+    them, which is why the old implementation could never produce audio. Use
+    the REST backend instead.
     """
-    output_dir = Path(output_path).parent
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Write lyrics to temp file
-    lyrics_path = output_dir / "lyrics_input.txt"
-    lyrics_path.write_text(lyrics, encoding="utf-8")
-
-    prompt = ", ".join(p for p in [style_prompt, *prompt_bits] if p)
-
-    # Build ACE-Step config JSON
-    config = {
-        "prompt": prompt,
-        "lyrics": lyrics or ("[Instrumental]" if instrumental else ""),
-        "instrumental": instrumental,
-        "vocal_language": "zh",
-        "task_type": "text2music",
-        "thinking": False,
-        "inference_steps": 25,
-        "guidance_scale": 7.0,
-        "audio_format": "wav",
-    }
-    if duration_seconds:
-        config["audio_duration"] = duration_seconds
-
-    config_path = output_dir / "acestep_config.json"
-    config_path.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
-
-    # Use uv run to call ACE-Step's generation directly
-    cmd = [
-        "uv", "run", "--no-sync",
-        "python", "-c", f"""
-import json, sys
-sys.path.insert(0, '{ACESTEP_DIR}')
-from acestep.api.job_blocking_generation import run_blocking_generate
-from acestep.api.http.release_task_models import GenerateMusicRequest
-
-config = json.loads(open('{config_path}').read())
-req = GenerateMusicRequest(**config)
-audio, _ = run_blocking_generate(req)
-with open('{output_path}', 'wb') as f:
-    f.write(audio)
-print("DONE")
-""",
-    ]
-
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        cwd=ACESTEP_DIR,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+    raise RuntimeError(
+        "ACESTEP_BACKEND=subprocess is not supported by ACE-Step 1.5. "
+        "Start the ACE-Step API server (start.bat does this) and set "
+        "ACESTEP_BACKEND=api."
     )
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-    if proc.returncode != 0:
-        raise RuntimeError(f"ACE-Step failed: {stderr.decode()}")
-
-    out = Path(output_path)
-    if not out.exists():
-        raise FileNotFoundError(f"No output at {output_path}")
-    return out
 
 
 async def _generate_api(
@@ -185,7 +139,7 @@ async def _generate_api(
 
     payload = {
         "prompt": prompt,
-        "lyrics": lyrics or ("[Instrumental]" if instrumental else ""),
+        "lyrics": "[Instrumental]" if instrumental else lyrics,
         "vocal_language": "zh",
         "task_type": "text2music",
         "thinking": False,
@@ -196,12 +150,19 @@ async def _generate_api(
     if duration_seconds:
         payload["audio_duration"] = duration_seconds
 
-    # 1. Submit task
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(f"{api_url}/release_task", json=payload)
-        resp.raise_for_status()
-        body = resp.json()
-        task_id = body["data"]["task_id"]
+    audio_rel = ""
+    try:
+        # 1. Submit task
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(f"{api_url}/release_task", json=payload)
+            resp.raise_for_status()
+            body = resp.json()
+            task_id = body["data"]["task_id"]
+    except httpx.ConnectError as exc:
+        raise RuntimeError(
+            f"Cannot reach the ACE-Step API server at {api_url}. "
+            "Start it with start.bat, or set ACESTEP_API_URL to the running server."
+        ) from exc
 
     # 2. Poll until done (status: 0=running, 1=succeeded, 2=failed)
     async with httpx.AsyncClient(timeout=30) as client:

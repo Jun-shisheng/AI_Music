@@ -252,12 +252,15 @@ export function parseStylePrompt(prompt: string): ReturnType<typeof defaultStyle
     if (lower.includes(tag.value)) result.instruments.push(tag.value);
   }
   for (const tag of TAXONOMY.vocals) {
-    if (lower.includes(tag.value)) result.vocals.push(tag.value);
+    if (new RegExp(`(?:^|[^a-z-])${tag.value}(?=$|[^a-z-])`).test(lower)) {
+      result.vocals.push(tag.value);
+    }
   }
 
-  const tempoMatch = prompt.match(/(\d{2,3}\s*[-~]\s*\d{2,3})\s*BPM/i);
+  const tempoMatch = prompt.match(/(\d{2,3}\s*[-~]\s*\d{2,3}|\d{2,3}\s*\+)\s*BPM/i);
   if (tempoMatch) {
-    result.tempo = TEMPOS.find((t) => t.value === tempoMatch[1].replace(/\s/g, ''))?.value || '';
+    const tempo = tempoMatch[1].replace(/\s/g, '').replace('~', '-');
+    result.tempo = TEMPOS.find((t) => t.value === tempo)?.value || '';
   }
 
   return result;

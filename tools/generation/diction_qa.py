@@ -78,6 +78,13 @@ def main() -> int:
     ref_lines = clean_lyrics(args.lyrics.read_text(encoding="utf-8"))
     ref_all = "".join(ref_lines)
 
+    if not args.model.is_dir():
+        ap.error(
+            f"faster-whisper model not found at {args.model}. Pass --model "
+            "pointing at a downloaded CTranslate2/faster-whisper directory "
+            "(the default lives under the gitignored PR_AIMusic_Extension/)."
+        )
+
     from faster_whisper import WhisperModel
     model = WhisperModel(str(args.model), device="cpu", compute_type="int8")
     language = None if args.language in ("auto", "") else args.language

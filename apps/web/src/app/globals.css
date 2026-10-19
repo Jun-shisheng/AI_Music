@@ -3,33 +3,225 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0a0a0f;
-  --surface: #141420;
-  --border: #1e1e32;
-  --text: #e4e4ec;
-  --text-muted: #7b7b9e;
-  --accent: #7c3aed;
-  --accent-glow: rgba(124, 58, 237, 0.25);
-  --success: #10b981;
-  --warning: #f59e0b;
-  --error: #ef4444;
+  --bg: #06060b;
+  --bg-soft: #0a0a13;
+  --surface: rgba(19, 19, 32, 0.66);
+  --surface-solid: #12121e;
+  --surface-hover: rgba(28, 28, 46, 0.8);
+  --border: rgba(148, 148, 190, 0.14);
+  --border-strong: rgba(160, 160, 205, 0.28);
+  --text: #ececf5;
+  --text-muted: #8d8daa;
+  --accent: #8b5cf6;
+  --accent-soft: #a78bfa;
+  --accent-2: #22d3ee;
+  --accent-3: #f472b6;
+  --accent-glow: rgba(139, 92, 246, 0.35);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --error: #f87171;
+}
+
+html {
+  color-scheme: dark;
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--bg);
+  background:
+    radial-gradient(1100px 620px at 80% -12%, rgba(139, 92, 246, 0.17), transparent 62%),
+    radial-gradient(900px 520px at 4% 4%, rgba(34, 211, 238, 0.1), transparent 58%),
+    radial-gradient(760px 480px at 52% 112%, rgba(244, 114, 182, 0.08), transparent 62%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(139, 92, 246, 0.35);
+  color: #fff;
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
+  background: rgba(148, 148, 190, 0.22);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 148, 190, 0.36);
+}
+
+@layer components {
+  .panel {
+    @apply rounded-2xl border border-[var(--border)] bg-[var(--surface)] backdrop-blur-xl;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.04) inset,
+      0 24px 60px -32px rgba(0, 0, 0, 0.75);
+  }
+
+  .panel-hover {
+    @apply transition-colors duration-200;
+  }
+  .panel-hover:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+  }
+
+  .eyebrow {
+    @apply text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--text-muted)];
+  }
+
+  .display-title {
+    background: linear-gradient(108deg, #fff 8%, #d9d3ff 42%, var(--accent-2) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-all duration-200;
+    background-image: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.18) inset,
+      0 10px 30px -12px var(--accent-glow);
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.22) inset,
+      0 16px 40px -12px var(--accent-glow);
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .btn-primary:disabled {
+    @apply cursor-not-allowed opacity-40;
+    transform: none;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm text-[var(--text-muted)] transition-colors duration-200;
+  }
+  .btn-ghost:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .field {
+    @apply w-full rounded-xl border border-[var(--border)] bg-[rgba(10,10,18,0.55)] p-3 text-sm text-[var(--text)] outline-none transition-colors duration-200;
+  }
+  .field::placeholder {
+    color: rgba(141, 141, 170, 0.55);
+  }
+  .field:focus {
+    border-color: rgba(139, 92, 246, 0.65);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.14);
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] text-[var(--text-muted)] ring-1 ring-[var(--border)] transition-colors duration-150;
+    background: rgba(10, 10, 18, 0.4);
+  }
+  .chip:hover {
+    color: var(--text);
+    --tw-ring-color: var(--border-strong);
+  }
+  .chip-active {
+    background: rgba(139, 92, 246, 0.16);
+    color: var(--accent-soft);
+    box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.45) inset;
+  }
+
+  .divider {
+    @apply border-t border-[var(--border)];
+  }
+}
+
+/* ── Motion ─────────────────────────────────────────────────────────────── */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes eq {
+  0%,
+  100% {
+    transform: scaleY(0.32);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.35);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(139, 92, 246, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.eq-bar {
+  transform-origin: center;
+  animation-name: eq;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.animate-float {
+  animation: float 7s ease-in-out infinite;
+}
+
+.live-dot {
+  animation: pulse-ring 2.4s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
