@@ -7,22 +7,43 @@ updates:
     directory: /services/api
     schedule:
       interval: monthly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 4
     labels:
       - dependencies
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+      major:
+        applies-to: version-updates
+        update-types: ["major"]
 
   - package-ecosystem: npm
     directory: /apps/web
     schedule:
       interval: monthly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 4
     labels:
       - dependencies
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+      major:
+        applies-to: version-updates
+        update-types: ["major"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 4
     labels:
       - dependencies
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+      major:
+        applies-to: version-updates
+        update-types: ["major"]
