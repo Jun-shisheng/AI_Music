@@ -19,7 +19,29 @@ license.
 ## Branch model
 
 The repository uses **GitHub Flow**. There is no long-lived `develop` branch:
-`main` is the release branch and should always build and pass tests.
+`main` is the integration and release branch, and it should always build and
+pass tests.
+
+```
+main    ──●────●────●────●──►   always releasable; v0.x.y tags
+            \        /
+feat/x       ●──●──●            short-lived; PR; squash merge
+```
+
+### Why not a long-lived `develop` branch
+
+A `develop` branch is useful when several maintainers land changes continuously
+and releases are cut on a schedule: features merge into `develop`, and
+`develop` is promoted to `main` at release time. This project is a
+single-maintainer alpha with frequent, small releases, so an extra long-lived
+branch would add merge work and a second place for CI to go red. Revisit this
+policy when there are two or more active maintainers and a real release cadence.
+
+### Historical branches
+
+`master` is a frozen July 2026 snapshot. It is more than 40 commits behind
+`main` and receives no changes. Use `main` for every branch, pull request and
+release; do not target pull requests at `master`.
 
 1. Branch from the latest `main`; do not commit directly to `main`.
 2. Use a short-lived branch with a typed name:
@@ -66,8 +88,8 @@ request:
 - `npm ci && npm run build` for the frontend.
 
 A red CI run is a blocker: fix it in the same branch rather than merging with a
-failing required check. Dependabot opens weekly dependency PRs using the same CI
-and review rules.
+failing required check. Dependabot opens monthly dependency PRs using the same
+CI and review rules; security updates are separate and remain enabled.
 
 ## Commits
 
@@ -98,7 +120,49 @@ docs(readme): document 8 GB vocal artifacts
 test(audio): cover path traversal in /audio
 ```
 
+## Issues
+
+Search the existing issues and Discussions before opening a new one. Use the
+provided templates; an issue with a reproduction is worth more than a long
+description without one.
+
+### Bug reports
+
+- Use the **Bug report** template and include the OS, GPU/VRAM, Python version,
+  commit SHA and backend.
+- Give a minimal reproduction and state the expected and actual result.
+- For audio defects, include the exact seconds that sound wrong and the output
+  of `audio_qa.py` / `arc_qa.py`. A number is actionable; "it sounds bad" is not.
+- Redact API keys, usernames and absolute personal paths.
+
+### Feature requests
+
+- Use the **Feature request** template and lead with the problem, not only the
+  proposed solution.
+- State how we could tell it works: a test, a measurement, or a concrete
+  acceptance check.
+- Large or breaking changes should start as an RFC issue before any code.
+
+### Questions and security
+
+- Usage questions and design discussions belong in GitHub Discussions.
+- Security vulnerabilities go through [SECURITY.md](SECURITY.md), never a public
+  issue.
+
+### Triage
+
+Maintainers apply one or more labels: `bug`, `enhancement`, `documentation`,
+`needs reproduction`, `area: api`, `area: frontend`, `area: tools`,
+`breaking change`, `dependencies`. An issue is ready for work when it has a
+reproduction (bugs) or an acceptance check (features). `good first issue` marks
+a self-contained task with clear acceptance criteria and no hidden design work.
+
 ## Pull requests
+
+Open pull requests against `main`. Use a draft PR while the branch is still
+moving, and mark it ready only when CI is green and the description is
+complete. The PR title follows Conventional Commits, because it becomes the
+squash-merge subject: `fix(queue): claim jobs atomically on restart`.
 
 Use the pull-request template. A pull request is ready for review when:
 
@@ -113,10 +177,17 @@ Use the pull-request template. A pull request is ready for review when:
 Review and merge:
 
 - One maintainer review is required; more than one for API or queue changes.
-- Address review comments with new commits, then squash-merge.
-- Delete the branch after merge.
-- Aim for a focused diff under roughly 400 changed lines. Split a larger
-  change into reviewable pull requests.
+- The author responds to every comment and resolves the conversation after the
+  change is pushed. Do not force-push a branch that is under review unless the
+  reviewer asks for a rebase.
+- CI must be green at merge time. Do not merge with a failing or missing
+  required check.
+- The maintainer squash-merges using the PR title, then deletes the branch.
+- Aim for a focused diff under roughly 400 changed lines. Split a larger change
+  into reviewable pull requests.
+- A maintainer who is also the author may self-merge only after CI is green and
+  the PR has been open long enough for comment; once a second maintainer
+  exists, that person's review is required instead.
 
 For a large or breaking change, open an RFC issue first and agree on the shape
 before writing code.

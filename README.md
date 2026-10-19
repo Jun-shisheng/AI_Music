@@ -384,8 +384,11 @@ commit format, review rules and security notes — is in
 - Commits follow [Conventional Commits](https://www.conventionalcommits.org/):
   `feat(api): add SSE job progress`, `fix(queue): claim jobs atomically`.
 - Open the PR against `main`; it is squash-merged after one maintainer review.
-  Releases are `v0.x.y` tags — there is no long-lived `develop` branch.
+  Releases are `v0.x.y` tags — there is no long-lived `develop` branch, and
+  `master` is a frozen historical branch.
 - External contributors: fork, push the branch to your fork, and open the PR.
+- Bugs and feature requests use the issue templates; questions go to
+  Discussions; security reports go through [SECURITY.md](SECURITY.md).
 
 Before opening a PR:
 
