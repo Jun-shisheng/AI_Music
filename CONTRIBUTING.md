@@ -49,8 +49,8 @@ Recommended settings for `main` (maintainers configure these in the GitHub
 repository settings):
 
 - require a pull request before merging;
-- require the CI checks to pass: `backend (ubuntu-latest)`,
-  `backend (windows-latest)` and `frontend`;
+- once the CI workflow is enabled, require its checks to pass:
+  `backend (ubuntu-latest)`, `backend (windows-latest)` and `frontend`;
 - require conversation resolution before merging;
 - disallow force pushes and branch deletion;
 - keep **enforce for administrators** off while the project has a single
@@ -59,15 +59,17 @@ repository settings):
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push to `main` and on every pull
-request:
+The repository is prepared for GitHub Actions. Once
+`.github/workflows/ci.yml` is added, it runs on every push to `main` and on
+every pull request:
 
 - backend tests on Ubuntu and Windows with Python 3.11;
 - `npm ci && npm run build` for the frontend.
 
-A red CI run is a blocker. Fix it in the same branch; do not merge with a
-failing required check. Dependabot opens weekly dependency PRs using the same CI
-and review rules.
+Until the workflow is present, run the same two commands locally before opening
+a PR. A red CI run is a blocker: fix it in the same branch rather than merging
+with a failing required check. Dependabot opens weekly dependency PRs using the
+same CI and review rules.
 
 ## Commits
 
