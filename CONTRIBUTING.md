@@ -123,6 +123,10 @@ A red CI run is a blocker: fix it in the same branch rather than merging with a
 failing required check. Dependabot opens monthly dependency PRs using the same
 CI and review rules; security updates are separate and remain enabled.
 
+Version updates target `develop`. Dependabot security updates follow the
+repository's default branch (`main`); merge them there, then back-merge `main`
+into `develop` so the fix is not lost on the integration branch.
+
 ## Commits
 
 Use [Conventional Commits](https://www.conventionalcommits.org/):
