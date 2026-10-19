@@ -5,6 +5,7 @@ version: 2
 updates:
   - package-ecosystem: pip
     directory: /services/api
+    target-branch: develop
     schedule:
       interval: monthly
     open-pull-requests-limit: 4
@@ -20,6 +21,7 @@ updates:
 
   - package-ecosystem: npm
     directory: /apps/web
+    target-branch: develop
     schedule:
       interval: monthly
     open-pull-requests-limit: 4
@@ -35,6 +37,7 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: develop
     schedule:
       interval: monthly
     open-pull-requests-limit: 4

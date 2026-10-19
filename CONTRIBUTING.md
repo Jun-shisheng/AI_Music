@@ -18,71 +18,103 @@ license.
 
 ## Branch model
 
-The repository uses **GitHub Flow**. There is no long-lived `develop` branch:
-`main` is the integration and release branch, and it should always build and
-pass tests.
+Two long-lived branches:
+
+| Branch | Role |
+|---|---|
+| `main` | release branch; every commit is a released state, tagged `vX.Y.Z` |
+| `develop` | integration branch; the target for all feature and fix work |
 
 ```
-main    ──●────●────●────●──►   always releasable; v0.x.y tags
-            \        /
-feat/x       ●──●──●            short-lived; PR; squash merge
+develop ──●──●──●──●──●──►   integration; CI on every push
+         /     \       \
+feat/x  ●──●    ●──●    release PR ──► main ──► tag vX.Y.Z
+                                             \
+                                              back-merge into develop
 ```
 
-### Why not a long-lived `develop` branch
+Short-lived branches:
 
-A `develop` branch is useful when several maintainers land changes continuously
-and releases are cut on a schedule: features merge into `develop`, and
-`develop` is promoted to `main` at release time. This project is a
-single-maintainer alpha with frequent, small releases, so an extra long-lived
-branch would add merge work and a second place for CI to go red. Revisit this
-policy when there are two or more active maintainers and a real release cadence.
+| Prefix | Base | Merges into |
+|---|---|---|
+| `feat/<slug>` | `develop` | `develop` |
+| `fix/<slug>` | `develop` | `develop` |
+| `docs/<slug>` | `develop` | `develop` |
+| `test/<slug>` | `develop` | `develop` |
+| `refactor/<slug>` | `develop` | `develop` |
+| `chore/<slug>` | `develop` | `develop` |
+| `release/vX.Y.Z` | `develop` | `main` (optional stabilization branch) |
+| `hotfix/<slug>` | `main` | `main`, then back-merge into `develop` |
 
-### Historical branches
+Rules:
 
-`master` is a frozen July 2026 snapshot. It is more than 40 commits behind
-`main` and receives no changes. Use `main` for every branch, pull request and
-release; do not target pull requests at `master`.
+1. Never commit directly to `main` or `develop`; both are protected.
+2. Feature, fix, docs, test, refactor and chore branches start from `develop`
+   and open a pull request back to `develop`.
+3. Rebase on the latest `develop` before opening or updating a pull request.
+4. Keep one topic per branch and one topic per pull request; delete the branch
+   after merge.
+5. External contributors fork the repository, push the branch to their fork and
+   open a pull request against `AI_Music:develop`.
+6. `develop` must stay green. A red CI on `develop` is a stop-the-line event.
+7. `main` only receives release and hotfix pull requests. Do not develop on it.
 
-1. Branch from the latest `main`; do not commit directly to `main`.
-2. Use a short-lived branch with a typed name:
+### Releases
 
-   | Prefix | Use |
-   |---|---|
-   | `feat/<slug>` | new user-visible capability |
-   | `fix/<slug>` | bug fix |
-   | `docs/<slug>` | documentation only |
-   | `test/<slug>` | tests only |
-   | `refactor/<slug>` | no behavior change |
-   | `chore/<slug>` | tooling, dependencies, housekeeping |
-
-3. Keep one topic per branch and one topic per pull request.
-4. Rebase on `main` before opening or updating a pull request.
-5. If you do not have write access, fork the repository, push the branch to
-   your fork, and open a pull request against `AI_Music:main`.
-6. Maintainers follow the same flow. `main` is protected: changes land through
-   a pull request, and force-pushing to `main` is not allowed.
+1. Move the relevant entries from `[Unreleased]` to a new version section in
+   `CHANGELOG.md` on `develop`.
+2. Optionally create `release/vX.Y.Z` from `develop` for final stabilization.
+3. Open a pull request from `develop` (or the release branch) to `main`.
+4. Squash-merge when CI is green, then tag `main`: `git tag -a vX.Y.Z`.
+5. Publish the GitHub release from the tag.
+6. Back-merge `main` into `develop` with a merge commit so the release commit
+   and tag are in the integration history. Do not squash the back-merge.
 
 Releases are annotated tags on `main` using `v0.x.y` (semantic versioning). A
 release note lists user-visible changes and any API-contract change.
 
+### Hotfixes
+
+Branch `hotfix/<slug>` from `main`, open a pull request to `main`, tag a patch
+release, then back-merge `main` into `develop` with a merge commit.
+
+### Historical branches
+
+`master` is a frozen July 2026 snapshot. It is more than 40 commits behind
+`main` and receives no changes. Use `main`/`develop` for all work; do not target
+pull requests at `master`.
+
 ### Branch protection
 
-Recommended settings for `main` (maintainers configure these in the GitHub
-repository settings):
+Recommended settings (maintainers configure these in the GitHub repository
+settings):
+
+`main`
 
 - require a pull request before merging;
-- require the CI checks to pass: `backend (ubuntu-latest)`,
+- require the CI checks: `backend (ubuntu-latest)`,
   `backend (windows-latest)` and `frontend`;
-- require conversation resolution before merging;
+- require conversation resolution;
+- require linear history;
+- disallow force pushes and branch deletion.
+
+`develop`
+
+- require a pull request before merging;
+- require the same CI checks;
+- require conversation resolution;
 - disallow force pushes and branch deletion;
-- keep **enforce for administrators** off while the project has a single
-  maintainer, so the owner can still recover from a broken state. Turn it on
-  once there are two active maintainers.
+- do **not** require linear history: release back-merges use a merge commit.
+
+Keep **enforce for administrators** off while the project has a single
+maintainer, so the owner can recover from a broken state. Turn it on once there
+are two active maintainers; then also require one approving review on both
+branches.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push to `main` and on every pull
-request:
+`.github/workflows/ci.yml` runs on every push and pull request targeting
+`main` or `develop`:
 
 - backend tests on Ubuntu and Windows with Python 3.11;
 - `npm ci && npm run build` for the frontend.
@@ -159,10 +191,11 @@ a self-contained task with clear acceptance criteria and no hidden design work.
 
 ## Pull requests
 
-Open pull requests against `main`. Use a draft PR while the branch is still
-moving, and mark it ready only when CI is green and the description is
-complete. The PR title follows Conventional Commits, because it becomes the
-squash-merge subject: `fix(queue): claim jobs atomically on restart`.
+Open feature and fix pull requests against `develop`. Release and hotfix pull
+requests target `main`. Use a draft PR while the branch is still moving, and
+mark it ready only when CI is green and the description is complete. The PR
+title follows Conventional Commits, because it becomes the squash-merge
+subject: `fix(queue): claim jobs atomically on restart`.
 
 Use the pull-request template. A pull request is ready for review when:
 
@@ -172,7 +205,8 @@ Use the pull-request template. A pull request is ready for review when:
 - [ ] `docs/api.md` is updated when the API contract changes.
 - [ ] UI changes include a before/after screenshot.
 - [ ] No secrets, weights, audio, logs, or generated data are included.
-- [ ] Commits follow the convention above and the branch is rebased on `main`.
+- [ ] Commits follow the convention above and the branch is rebased on its
+      target (`develop` for feature work, `main` for release/hotfix PRs).
 
 Review and merge:
 
