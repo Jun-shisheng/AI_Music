@@ -377,16 +377,18 @@ commit format, review rules and security notes — is in
 
 **The short version:**
 
-- Branch from `main`; never commit directly to `main`.
+- Branch from `develop`; never commit directly to `main` or `develop`.
 - Use a typed, short-lived branch: `feat/<slug>`, `fix/<slug>`,
   `docs/<slug>`, `test/<slug>`, `refactor/<slug>`, `chore/<slug>`.
-- Keep one topic per branch and one topic per PR. Rebase on `main` before review.
+- Keep one topic per branch and one topic per PR. Rebase on `develop` before
+  review.
 - Commits follow [Conventional Commits](https://www.conventionalcommits.org/):
   `feat(api): add SSE job progress`, `fix(queue): claim jobs atomically`.
-- Open the PR against `main`; it is squash-merged after one maintainer review.
-  Releases are `v0.x.y` tags — there is no long-lived `develop` branch, and
-  `master` is a frozen historical branch.
-- External contributors: fork, push the branch to your fork, and open the PR.
+- Open feature/fix PRs against `develop`; release and hotfix PRs target `main`.
+  `main` is release-only and tagged `v0.x.y`; `develop` is the integration
+  branch.
+- External contributors: fork, push the branch to your fork, and open the PR
+  against `AI_Music:develop`.
 - Bugs and feature requests use the issue templates; questions go to
   Discussions; security reports go through [SECURITY.md](SECURITY.md).
 
