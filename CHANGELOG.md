@@ -6,15 +6,6 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
-
-- Frontend majors: Next.js 14 → 16, React 18 → 19, Tailwind CSS 3 → 4
-  (`@tailwindcss/postcss`, CSS-first config), TypeScript 5 → 7 and
-  `@types/node` 20 → 26.
-- Backend tooling: pytest 8 → 9, pytest-asyncio 0.24 → 1.4 and
-  uvicorn 0.30 → 0.54.
-- `npm run lint` now runs `tsc --noEmit`; `next lint` was removed in Next 16.
-
 ### Planned
 
 - Pluggable generation backends behind a documented adapter protocol
