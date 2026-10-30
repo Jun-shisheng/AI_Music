@@ -12,9 +12,11 @@ import asyncio
 from pathlib import Path
 
 from app.config import settings
+from app.services.music_text import detect_vocal_language, prepare_generation_lyrics
 
 BACKEND = settings.acestep_backend
 ACESTEP_DIR = settings.acestep_dir
+_lora_loaded_path: str | None = None
 
 GENERATION_TYPES = ("song", "bgm_loop", "sfx")
 
@@ -68,6 +70,85 @@ def _ensure_output_dir():
     Path(settings.output_dir).mkdir(parents=True, exist_ok=True)
 
 
+async def _ensure_lora_loaded() -> None:
+    """Load ACE-Step LoRA via HTTP API once per process when configured."""
+    global _lora_loaded_path
+    lora_path = (settings.acestep_lora_path or "").strip()
+    if not lora_path:
+        return
+    if BACKEND != "api":
+        return
+    if _lora_loaded_path == lora_path:
+        return
+    import httpx
+
+    api_url = settings.acestep_api_url
+    payload: dict = {"lora_path": lora_path}
+    if settings.acestep_lora_adapter_name:
+        payload["adapter_name"] = settings.acestep_lora_adapter_name
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(f"{api_url}/v1/lora/load", json=payload)
+            resp.raise_for_status()
+            await client.post(
+                f"{api_url}/v1/lora/scale",
+                json={
+                    "scale": float(settings.acestep_lora_scale),
+                    "adapter_name": settings.acestep_lora_adapter_name or None,
+                },
+            )
+            await client.post(f"{api_url}/v1/lora/toggle", json={"use_lora": True})
+        _lora_loaded_path = lora_path
+    except Exception as exc:  # noqa: BLE001
+        print(f"[acestep] LoRA load skipped/failed ({lora_path}): {exc}")
+
+
+def _quality_prompt(style_prompt: str, instrumental: bool, duration_seconds: int | None) -> str:
+    parts = [style_prompt.strip()]
+    if instrumental:
+        parts.extend([
+            "instrumental",
+            "no vocals",
+            "clean mix",
+            "no noise",
+            "no distortion",
+        ])
+    else:
+        parts.extend([
+            "complete full-length song",
+            "realistic human lead vocal tone",
+            "warm natural female vocal when applicable",
+            "instrumental intro before the first verse",
+            "lead vocal enters at the first verse",
+            "sing only the provided lyric lines",
+            "no humming intro",
+            "no wordless vocal filler",
+            "no la la or ooh ah ad-lib filler",
+            "natural pronunciation",
+            "smooth connected syllables",
+            "stable high notes",
+            "controlled sustained notes inside lyric phrases",
+            "subtle tasteful vocal variation",
+            "dynamic phrasing",
+            "low artifacts",
+            "no harsh AI noise",
+            "no sudden machine noise",
+            "no robotic synthetic timbre",
+            "not syllable-by-syllable chanting",
+            "no distortion",
+            "varied arrangement",
+            "dynamic section contrast",
+            "instrument entries and exits",
+            "rising pre-chorus",
+            "contrasted bridge",
+            "layered final chorus",
+            "verse pre-chorus chorus bridge final chorus",
+        ])
+    if duration_seconds and duration_seconds >= 180:
+        parts.append("full song structure with evolving melody and instrumentation")
+    return ", ".join(part for part in parts if part)
+
+
 async def generate(
     lyrics: str,
     style_prompt: str,
@@ -78,6 +159,7 @@ async def generate(
     generation_type: str = "song",
 ) -> Path:
     _ensure_output_dir()
+    await _ensure_lora_loaded()
     req = resolve_request(generation_type, instrumental, duration_seconds, loopable)
     # Instrumental mode must also replace stale lyrics from an earlier vocal
     # request; prompt additions alone do not stop the model from singing them.
@@ -135,16 +217,17 @@ async def _generate_api(
     import httpx
 
     api_url = settings.acestep_api_url
+    lyrics = prepare_generation_lyrics(lyrics) if not instrumental else lyrics
     prompt = ", ".join(p for p in [style_prompt, *prompt_bits] if p)
 
     payload = {
         "prompt": prompt,
         "lyrics": "[Instrumental]" if instrumental else lyrics,
-        "vocal_language": "zh",
+        "vocal_language": detect_vocal_language(lyrics, style_prompt),
         "task_type": "text2music",
         "thinking": False,
-        "inference_steps": 8,
-        "guidance_scale": 7.0,
+        "inference_steps": settings.acestep_inference_steps,
+        "guidance_scale": settings.acestep_guidance_scale,
         "audio_format": "wav",
     }
     if duration_seconds:

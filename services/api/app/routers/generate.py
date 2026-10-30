@@ -4,6 +4,7 @@ from app.db import SessionLocal
 from app.models import Job
 from app.schemas import GenerateRequest, GenerateResponse
 from app.services.acestep_runner import resolve_request
+from app.services.music_text import prepare_generation_lyrics
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/generate", tags=["generate"])
@@ -20,9 +21,13 @@ async def create_generation(req: GenerateRequest):
         req.duration_seconds,
         req.loopable,
     )
+    if resolved["instrumental"]:
+        lyrics = "[Instrumental]"
+    else:
+        lyrics = prepare_generation_lyrics(req.lyrics or "")
     job = Job(
         title=req.title,
-        lyrics="[Instrumental]" if resolved["instrumental"] else req.lyrics,
+        lyrics=lyrics,
         style_prompt=req.style_prompt,
         instrumental=resolved["instrumental"],
         generation_type=req.generation_type,

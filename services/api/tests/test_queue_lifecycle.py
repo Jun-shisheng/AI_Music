@@ -16,6 +16,10 @@ async def isolated_worker(monkeypatch, tmp_path):
     monkeypatch.setattr(queue, "_queue", asyncio.Queue())
     monkeypatch.setattr(queue, "_worker_task", None)
     monkeypatch.setattr(settings, "output_dir", str(tmp_path))
+    # These tests cover queue mechanics, so pin the ACE-Step seam they patch
+    # and keep the post-processing hook out of the way.
+    monkeypatch.setattr(settings, "generation_backend", "acestep")
+    monkeypatch.setattr(settings, "vocal_humanize_enabled", False)
     yield
     await queue.stop_worker()
 

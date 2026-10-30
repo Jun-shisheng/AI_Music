@@ -1,0 +1,6 @@
+# CPU-only preprocessing interpreter, kept separate from the CUDA backend.
+demucs==4.1.0
+pyworld==0.3.5
+librosa==0.11.0
+soundfile==0.14.0
+numpy==2.4.6
