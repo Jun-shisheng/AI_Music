@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { getLibrary, audioUrl, type LibraryItem } from '@/lib/api';
+import { PauseIcon, PlayIcon, RefreshIcon } from '@/components/Icons';
 
 const statusLabel: Record<string, string> = {
   queued: '排队中',
@@ -41,6 +42,16 @@ export default function LibraryPage() {
     load();
   }, [filter]);
 
+  // Changing the src of a mounted <audio> does not re-trigger autoplay, so
+  // switching from one track to another needs an explicit play().
+  useEffect(() => {
+    if (playing && audioRef.current) {
+      audioRef.current.play().catch(() => {
+        /* the browser may reject autoplay; the controls still work */
+      });
+    }
+  }, [playing]);
+
   // Poll when there are active jobs
   useEffect(() => {
     const hasActive = items.some(
@@ -56,15 +67,14 @@ export default function LibraryPage() {
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">曲库</h2>
-          <p className="text-sm text-[var(--text-muted)] mt-1">
+          <p className="eyebrow">Library</p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight">曲库</h2>
+          <p className="mt-1.5 text-sm text-[var(--text-muted)]">
             所有已生成和正在生成的歌曲。
           </p>
         </div>
-        <button
-          onClick={load}
-          className="px-3 py-1.5 rounded-md text-xs text-[var(--text-muted)] border border-[var(--border)] hover:text-[var(--text)] transition-colors"
-        >
+        <button onClick={load} className="btn-ghost px-3 py-1.5 text-xs">
+          <RefreshIcon className="h-3.5 w-3.5" />
           刷新
         </button>
       </div>
@@ -75,10 +85,10 @@ export default function LibraryPage() {
           <button
             key={s}
             onClick={() => setFilter(s)}
-            className={`px-3 py-1 rounded-md text-xs transition-colors ${
+            className={`rounded-lg px-3 py-1 text-xs transition-colors ${
               filter === s
-                ? 'bg-[var(--accent)]/15 text-[var(--accent)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+                ? 'bg-[var(--accent)]/15 text-[var(--accent-soft)] ring-1 ring-[var(--accent)]/40'
+                : 'text-[var(--text-muted)] ring-1 ring-transparent hover:text-[var(--text)]'
             }`}
           >
             {s ? statusLabel[s] : '全部'}
@@ -99,7 +109,7 @@ export default function LibraryPage() {
       )}
 
       {!loading && items.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-48 gap-2 text-sm text-[var(--text-muted)] border border-dashed border-[var(--border)] rounded-lg">
+        <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[var(--border)] bg-white/[0.015] text-sm text-[var(--text-muted)]">
           <p>曲库为空</p>
           <a href="/studio" className="text-[var(--accent)] hover:underline">
             去编曲房创作第一首歌
@@ -113,7 +123,7 @@ export default function LibraryPage() {
           {items.map((item) => (
             <div
               key={item.id}
-              className="flex items-center gap-4 p-3 rounded-lg bg-[var(--surface)] border border-[var(--border)]"
+              className="panel panel-hover flex items-center gap-4 p-4"
             >
               {/* Status dot */}
               <span
@@ -154,9 +164,17 @@ export default function LibraryPage() {
                       setPlaying(item.id);
                     }
                   }}
-                  className="px-3 py-1 rounded-md text-xs font-medium border border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors shrink-0"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--accent)]/50 px-3 py-1.5 text-xs font-medium text-[var(--accent-soft)] transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent)]/10"
                 >
-                  {playing === item.id ? '⏸ 暂停' : '▶ 试听'}
+                  {playing === item.id ? (
+                    <>
+                      <PauseIcon className="h-3 w-3" /> 暂停
+                    </>
+                  ) : (
+                    <>
+                      <PlayIcon className="h-3 w-3" /> 试听
+                    </>
+                  )}
                 </button>
               )}
             </div>

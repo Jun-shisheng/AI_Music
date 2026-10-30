@@ -1,0 +1,52 @@
+# Routine version updates run monthly to keep the pull-request queue small.
+# Security updates are a separate repository setting and remain enabled; this
+# schedule does not delay them.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /services/api
+    target-branch: develop
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 4
+    labels:
+      - dependencies
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+      major:
+        applies-to: version-updates
+        update-types: ["major"]
+
+  - package-ecosystem: npm
+    directory: /apps/web
+    target-branch: develop
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 4
+    labels:
+      - dependencies
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+      major:
+        applies-to: version-updates
+        update-types: ["major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 4
+    labels:
+      - dependencies
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+      major:
+        applies-to: version-updates
+        update-types: ["major"]

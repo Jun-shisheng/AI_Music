@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -5,6 +7,28 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from app.config import settings
 
 DATABASE_URL = settings.database_url
+
+
+def ensure_sqlite_dir(url: str = DATABASE_URL) -> Path | None:
+    """Create the directory a sqlite file lives in, and return it.
+
+    The default `sqlite:///./data/app.db` is relative to the working directory,
+    and sqlite does **not** create a missing parent directory -- it raises
+    "unable to open database file" and the whole app fails at startup, which is
+    the first thing a fresh clone hits. Doing this at import time means every
+    entry point (server, script, test) is covered.
+    """
+    if not url.startswith("sqlite"):
+        return None
+    path = url.partition("sqlite:///")[2].split("?")[0]
+    if not path or path == ":memory:":
+        return None
+    directory = Path(path).expanduser().resolve().parent
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+ensure_sqlite_dir()
 
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)

@@ -3,21 +3,17 @@ setlocal enabledelayedexpansion
 
 title AI Music Studio
 
-set "ROOT=D:\Model\AI_Music"
-
-:: ACE-Step (port 8765) is only needed when GENERATION_BACKEND=acestep.
-:: The default backend is HeartMuLa, which loads its own model onto the GPU --
-:: running ACE-Step as well would make the two compete for 12 GB of VRAM.
-:: Set to 1 to start it anyway.
-set "START_ACESTEP=0"
-
+:: Locate the repository from this script's own path, so a fresh clone works
+:: wherever it was checked out. Override with AI_MUSIC_ROOT if you keep the
+:: weights somewhere else. (This used to be hardcoded to one machine's drive.)
+if not defined AI_MUSIC_ROOT set "AI_MUSIC_ROOT=%~dp0"
+if "%AI_MUSIC_ROOT:~-1%"=="\" set "AI_MUSIC_ROOT=%AI_MUSIC_ROOT:~0,-1%"
+set "ROOT=%AI_MUSIC_ROOT%"
 set "ACESTEP_DIR=%ROOT%\vendor\ACE-Step-1.5"
 set "ACESTEP_VENV=%ACESTEP_DIR%\.venv\Scripts\python.exe"
 set "CHECKPOINTS=%ACESTEP_DIR%\checkpoints"
-set "API_PYTHON=%ROOT%\services\api\.venv\Scripts\python.exe"
-
-:: Fall back to system python if API venv doesn't exist
-if not exist "%API_PYTHON%" set "API_PYTHON=python"
+set "API_PYTHON=%ROOT%\.venv\Scripts\python.exe"
+if not exist "%API_PYTHON%" set "API_PYTHON=%ROOT%\services\api\.venv\Scripts\python.exe"
 
 echo.
 echo ============================================================
@@ -25,18 +21,65 @@ echo   AI Music Studio - Local Music Workbench
 echo ============================================================
 echo.
 
-:: ---- Clean stale processes ----
+:: ---- Validate prerequisites before patching, downloading, or starting ----
 
-echo [Pre] Cleaning stale processes on ports 8765, 8001, 3000...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8765.*LISTENING" 2^>nul') do taskkill /F /PID %%a 2>nul
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8001.*LISTENING" 2^>nul') do taskkill /F /PID %%a 2>nul
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000.*LISTENING" 2^>nul') do taskkill /F /PID %%a 2>nul
-echo [OK] Ports cleared.
-
-if "%START_ACESTEP%"=="0" (
-    echo [Skip] ACE-Step disabled ^(HeartMuLa backend^). Set START_ACESTEP=1 to enable.
-    goto :skip_acestep
+echo [Pre] Checking local prerequisites...
+if not exist "%ACESTEP_DIR%\acestep\api_server.py" (
+    echo [ERROR] ACE-Step checkout not found at "%ACESTEP_DIR%".
+    echo [ERROR] Install ACE-Step as described in README.md before starting.
+    exit /b 1
 )
+if not exist "%ACESTEP_VENV%" (
+    echo [ERROR] ACE-Step virtual environment not found: "%ACESTEP_VENV%".
+    echo [ERROR] Create its virtual environment and install its dependencies first.
+    exit /b 1
+)
+if not exist "%API_PYTHON%" (
+    echo [ERROR] API virtual environment not found in "%ROOT%\.venv" or "%ROOT%\services\api\.venv".
+    echo [ERROR] Create the API environment and install services\api\requirements.txt first.
+    exit /b 1
+)
+"%ACESTEP_VENV%" -c "import uvicorn, fastapi" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] ACE-Step Python environment is unusable or is missing uvicorn/fastapi.
+    exit /b 1
+)
+"%API_PYTHON%" -c "import uvicorn, fastapi" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] API Python environment is unusable or is missing uvicorn/fastapi.
+    exit /b 1
+)
+where node >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Node.js is not available on PATH. Install it before starting.
+    exit /b 1
+)
+where npm >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] npm is not available on PATH. Install it before starting.
+    exit /b 1
+)
+if not exist "%ROOT%\apps\web\node_modules\next\dist\bin\next" (
+    echo [ERROR] Frontend dependencies are missing. Run npm install in "%ROOT%\apps\web" first.
+    exit /b 1
+)
+pushd "%ROOT%\apps\web"
+if errorlevel 1 exit /b 1
+call npm ls --depth=0 >nul 2>&1
+set "FRONTEND_CHECK=%ERRORLEVEL%"
+popd
+if not "%FRONTEND_CHECK%"=="0" (
+    echo [ERROR] Frontend dependencies are incomplete. Run npm install in "%ROOT%\apps\web" first.
+    exit /b 1
+)
+
+echo [Pre] Checking ports 8765, 8000, 3000...
+powershell -NoProfile -Command "$ErrorActionPreference='Stop'; try { $listeners=@(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { $_.LocalPort -in @(8765,8000,3000) }); foreach ($listener in $listeners) { $owner=Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue; Write-Host ('[ERROR] Port {0} is in use by PID {1} ({2}) on {3}.' -f $listener.LocalPort,$listener.OwningProcess,$owner.ProcessName,$listener.LocalAddress) }; if ($listeners.Count -gt 0) { exit 1 }; exit 0 } catch { Write-Host ('[ERROR] Unable to check listening ports: ' + $_.Exception.Message); exit 1 }"
+if errorlevel 1 (
+    echo [ERROR] Startup cancelled. Resolve port conflicts before retrying.
+    exit /b 1
+)
+echo [OK] Prerequisites ready and ports available.
 
 :: ---- Apply patches to ACE-Step (one-time) ----
 
@@ -128,20 +171,19 @@ if %TRIES% lss 120 (
     if %TRIES% equ 6 echo [Wait] First startup may take a few minutes, please wait...
     goto :wait_acestep
 )
-echo [WARN] ACE-Step startup timeout, continuing anyway...
+echo [ERROR] ACE-Step startup timed out. Check its terminal before retrying.
+exit /b 1
 :acestep_ready
 
-:skip_acestep
-
-:: ---- Start FastAPI (port 8001) ----
+:: ---- Start FastAPI (port 8000) ----
 
 echo.
-echo [1/2] Starting FastAPI backend (127.0.0.1:8001)...
+echo [2/3] Starting FastAPI backend (127.0.0.1:8000)...
 
 (
 echo @echo off
 echo cd /d "%ROOT%\services\api"
-echo "%API_PYTHON%" -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
+echo "%API_PYTHON%" -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 echo if errorlevel 1 pause
 ) > "%TEMP%\fastapi_launcher.bat"
 start "FastAPI" "%TEMP%\fastapi_launcher.bat"
@@ -150,24 +192,25 @@ set "TRIES=0"
 :wait_fastapi
 timeout /t 2 /nobreak >nul
 set /a TRIES+=1
-powershell -Command "try { $r=Invoke-WebRequest -Uri 'http://127.0.0.1:8001/health' -TimeoutSec 2 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
+powershell -Command "try { $r=Invoke-WebRequest -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 2 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo [OK] FastAPI ready
     goto :fastapi_ready
 )
 if %TRIES% lss 15 goto :wait_fastapi
-echo [WARN] FastAPI startup timeout - starting anyway
+echo [ERROR] FastAPI startup timed out. Check its terminal before retrying.
+exit /b 1
 :fastapi_ready
 
 :: ---- Start Next.js (port 3000) ----
 
 echo.
-echo [2/2] Starting frontend (http://localhost:3000)...
+echo [3/3] Starting frontend (http://127.0.0.1:3000)...
 
 (
 echo @echo off
 echo cd /d "%ROOT%\apps\web"
-echo npx next dev --port 3000
+echo node node_modules\next\dist\bin\next dev --hostname 127.0.0.1 --port 3000
 echo if errorlevel 1 pause
 ) > "%TEMP%\nextjs_launcher.bat"
 start "Next.js" "%TEMP%\nextjs_launcher.bat"
@@ -176,13 +219,14 @@ set "TRIES=0"
 :wait_next
 timeout /t 2 /nobreak >nul
 set /a TRIES+=1
-powershell -Command "try { $r=Invoke-WebRequest -Uri 'http://localhost:3000' -TimeoutSec 2 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
+powershell -Command "try { $r=Invoke-WebRequest -Uri 'http://127.0.0.1:3000' -TimeoutSec 2 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo [OK] Next.js ready
     goto :next_ready
 )
 if %TRIES% lss 15 goto :wait_next
-echo [WARN] Next.js startup timeout
+echo [ERROR] Next.js startup timed out. Check its terminal before retrying.
+exit /b 1
 :next_ready
 
 :: ---- Done ----
@@ -192,13 +236,13 @@ echo ============================================================
 echo   All services started!
 echo.
 echo   ACE-Step API    http://127.0.0.1:8765
-echo   FastAPI         http://127.0.0.1:8001/docs
-echo   Frontend        http://localhost:3000
+echo   FastAPI         http://127.0.0.1:8000/docs
+echo   Frontend        http://127.0.0.1:3000
 echo ============================================================
 echo.
 echo Press any key to open browser, or close this window to stop.
 pause >nul
-start http://localhost:3000
+start http://127.0.0.1:3000
 echo.
 echo Browser opened. Close each terminal window to stop services.
 echo Next startup will be faster (models cached).

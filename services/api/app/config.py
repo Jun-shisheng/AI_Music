@@ -1,8 +1,9 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
-# Resolve .env relative to project root (2 levels up from this file)
-_ENV_PATH = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+# Resolve .env relative to project root (4 levels up from this file)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_ENV_PATH = _PROJECT_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -15,9 +16,15 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/app.db"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
-    acestep_backend: str = "subprocess"
+    # `api` talks to the ACE-Step REST server that start.bat launches. The old
+    # `subprocess` path cannot work: ACE-Step's run_blocking_generate needs the
+    # server's app_state/handlers, not just a request object.
+    acestep_backend: str = "api"
     acestep_api_url: str = "http://127.0.0.1:8765"
-    acestep_dir: str = "D:/Model/AI_Music/vendor/ACE-Step-1.5"
+    # Defaults to the checkout sitting next to this repository, so a fresh clone
+    # works wherever it was cloned instead of inheriting the path of the machine
+    # this was developed on. Override in .env.
+    acestep_dir: str = str(_PROJECT_ROOT / "vendor" / "ACE-Step-1.5")
     acestep_lora_path: str = ""
     acestep_lora_scale: float = 0.8
     acestep_lora_adapter_name: str = "ai_music"

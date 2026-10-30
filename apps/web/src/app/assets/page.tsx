@@ -106,40 +106,54 @@ export default function AssetsPage() {
     ].filter(Boolean).join(', ');
   }, [brief, duration, mode, modeSpec.prompt, world.prompt]);
 
+  // Only react to a mode switch. Depending on `brief` here reset the user's
+  // duration choice on every keystroke.
   useEffect(() => {
     setDuration(MODES[mode].defaultDuration);
-    if (mode === 'sfx' && brief === 'calm forest village exploration loop') {
-      setBrief('heavy sword impact with sharp attack and short tail');
-    }
-    if (mode === 'bgm_loop' && brief === 'heavy sword impact with sharp attack and short tail') {
-      setBrief('calm forest village exploration loop');
-    }
-  }, [mode, brief]);
+    setBrief((prev) => {
+      if (mode === 'sfx' && prev === 'calm forest village exploration loop') {
+        return 'heavy sword impact with sharp attack and short tail';
+      }
+      if (mode === 'bgm_loop' && prev === 'heavy sword impact with sharp attack and short tail') {
+        return 'calm forest village exploration loop';
+      }
+      return prev;
+    });
+  }, [mode]);
 
   useEffect(() => {
     if (!jobIds.length) return;
+    let cancelled = false;
+    let polling = false;
 
     async function poll() {
-      const next: Record<string, JobStatus> = {};
-      await Promise.all(jobIds.map(async (id) => {
-        try {
-          next[id] = await getJob(id);
-        } catch {
-          if (jobs[id]) next[id] = jobs[id];
-        }
-      }));
-      setJobs((prev) => ({ ...prev, ...next }));
+      if (cancelled || polling) return;
+      polling = true;
+      try {
+        const next: Record<string, JobStatus> = {};
+        await Promise.all(jobIds.map(async (id) => {
+          try {
+            next[id] = await getJob(id);
+          } catch { /* keep the previous status and retry on the next poll */ }
+        }));
+        if (!cancelled) setJobs((prev) => ({ ...prev, ...next }));
+      } finally {
+        polling = false;
+      }
     }
 
     poll();
     timerRef.current = setInterval(poll, 3000);
     return () => {
+      cancelled = true;
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [jobIds]);
 
-  const orderedJobs = jobIds.map((id) => jobs[id]).filter(Boolean);
-  const hasActive = orderedJobs.some((job) => job.status === 'queued' || job.status === 'running');
+  const hasActive = jobIds.some((id) => {
+    const job = jobs[id];
+    return !job || job.status === 'queued' || job.status === 'running';
+  });
 
   useEffect(() => {
     if (!hasActive && timerRef.current) {
@@ -150,7 +164,7 @@ export default function AssetsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!brief.trim()) return;
+    if (submitting || !brief.trim()) return;
 
     setSubmitting(true);
     setError(null);
@@ -158,7 +172,6 @@ export default function AssetsPage() {
     setJobIds([]);
 
     try {
-      const ids: string[] = [];
       for (let i = 0; i < variations; i += 1) {
         const label = String.fromCharCode(65 + i);
         const response = await generate({
@@ -171,9 +184,8 @@ export default function AssetsPage() {
           loopable: modeSpec.loopable,
           variation_label: label,
         });
-        ids.push(response.id);
+        setJobIds((prev) => [...prev, response.id]);
       }
-      setJobIds(ids);
     } catch (err) {
       setError(err instanceof Error ? err.message : '提交失败');
     } finally {
@@ -185,8 +197,9 @@ export default function AssetsPage() {
     <div className="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-5 gap-6">
       <section className="lg:col-span-2 space-y-5">
         <div>
-          <h2 className="text-lg font-semibold">游戏素材工坊</h2>
-          <p className="text-sm text-[var(--text-muted)] mt-1">
+          <p className="eyebrow">Game assets</p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight">游戏素材工坊</h2>
+          <p className="mt-1.5 text-sm text-[var(--text-muted)]">
             批量生成独游用 BGM 循环和短音效草案，再从曲库中挑选可用版本。
           </p>
         </div>
@@ -237,7 +250,7 @@ export default function AssetsPage() {
             <textarea
               value={brief}
               onChange={(e) => setBrief(e.target.value)}
-              className="w-full h-24 bg-[var(--surface)] border border-[var(--border)] rounded-lg p-3 text-sm text-[var(--text)] resize-none focus:outline-none focus:border-[var(--accent)]"
+              className="field h-24 resize-none"
               placeholder="例如：heavy sword impact / forest village exploration loop"
             />
             {mode === 'sfx' && (
@@ -262,7 +275,7 @@ export default function AssetsPage() {
               <select
                 value={duration}
                 onChange={(e) => setDuration(Number(e.target.value))}
-                className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg p-2 text-sm"
+                className="field py-2"
               >
                 {(mode === 'sfx' ? [10, 15, 20] : [30, 45, 60, 90, 120]).map((value) => (
                   <option key={value} value={value}>{value}s</option>
@@ -275,7 +288,7 @@ export default function AssetsPage() {
               <select
                 value={variations}
                 onChange={(e) => setVariations(Number(e.target.value))}
-                className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg p-2 text-sm"
+                className="field py-2"
               >
                 {[2, 3, 4, 5, 6].map((value) => (
                   <option key={value} value={value}>{value}</option>
@@ -286,7 +299,7 @@ export default function AssetsPage() {
 
           <div>
             <label className="block text-xs text-[var(--text-muted)] mb-1">Prompt 预览</label>
-            <code className="block bg-[var(--surface)] border border-[var(--border)] rounded-lg p-3 text-xs text-[var(--text-muted)] leading-relaxed">
+            <code className="panel block p-3 text-xs leading-relaxed text-[var(--text-muted)]">
               {promptPreview}
             </code>
           </div>
@@ -300,7 +313,7 @@ export default function AssetsPage() {
           <button
             type="submit"
             disabled={submitting || !brief.trim()}
-            className="w-full py-2.5 rounded-lg bg-[var(--accent)] text-white text-sm font-medium disabled:opacity-40 hover:shadow-[0_0_24px_var(--accent-glow)] transition-shadow"
+            className="btn-primary w-full"
           >
             {submitting ? '提交中...' : `生成 ${variations} 个变体`}
           </button>
@@ -309,14 +322,17 @@ export default function AssetsPage() {
 
       <section className="lg:col-span-3 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">候选素材</h2>
+          <div>
+            <p className="eyebrow">Candidates</p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight">候选素材</h2>
+          </div>
           <a href="/library" className="text-xs text-[var(--accent)] hover:underline">
             打开曲库
           </a>
         </div>
 
         {!jobIds.length && (
-          <div className="h-72 flex items-center justify-center border border-dashed border-[var(--border)] rounded-lg text-sm text-[var(--text-muted)]">
+          <div className="flex h-72 items-center justify-center rounded-2xl border border-dashed border-[var(--border)] bg-white/[0.015] text-sm text-[var(--text-muted)]">
             提交后会在这里显示所有变体的生成状态和试听入口。
           </div>
         )}
@@ -327,7 +343,7 @@ export default function AssetsPage() {
               const job = jobs[id];
               const label = String.fromCharCode(65 + index);
               return (
-                <div key={id} className="p-4 rounded-lg bg-[var(--surface)] border border-[var(--border)] space-y-3">
+                <div key={id} className="panel space-y-3 p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-sm font-medium">

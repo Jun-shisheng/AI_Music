@@ -203,6 +203,7 @@ def analyze(path: Path) -> dict:
     # fade cannot masquerade as a dramatic drop).
     mid_lo, mid_hi = max(int(n * 0.2), 1), max(int(n * 0.9), 2)
     quiet_win = min(4, max(mid_hi - mid_lo, 1))
+    mid_dip_idx = mid_lo  # short takes skip the rolling window below
     if mid_hi - mid_lo > quiet_win:
         mid = db[mid_lo:mid_hi]
         rolled = np.convolve(mid, np.ones(quiet_win) / quiet_win, mode="valid")

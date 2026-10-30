@@ -3,8 +3,8 @@ import './globals.css';
 import Navbar from '@/components/Navbar';
 
 export const metadata: Metadata = {
-  title: 'AI Music Studio',
-  description: 'Local AI music arrangement and generation',
+  title: 'AI Music Studio · 本地 AI 编曲工作台',
+  description: 'LLM 写词、本地模型渲染、指标测量后人工定稿的本地音乐工作台。',
 };
 
 export default function RootLayout({

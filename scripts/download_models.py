@@ -6,11 +6,15 @@ based on network (ModelScope preferred for China).
 Run standalone or via start.bat.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-ACESTEP_DIR = Path("G:/AI_Music/vendor/ACE-Step-1.5")
+# The ACE-Step checkout that lives next to this repository. Set ACESTEP_DIR to
+# point somewhere else. (This used to be hardcoded to one machine's drive.)
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+ACESTEP_DIR = Path(os.environ.get("ACESTEP_DIR", _REPO_ROOT / "vendor" / "ACE-Step-1.5"))
 CHECKPOINTS_DIR = ACESTEP_DIR / "checkpoints"
 
 MAIN_COMPONENTS = [

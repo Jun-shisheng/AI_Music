@@ -59,8 +59,9 @@ export default function StudioPage() {
       {/* Input Panel */}
       <section className="space-y-4">
         <div>
-          <h2 className="text-lg font-semibold">编曲房</h2>
-          <p className="text-sm text-[var(--text-muted)] mt-1">
+          <p className="eyebrow">Arrange</p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight">编曲房</h2>
+          <p className="mt-1.5 text-sm text-[var(--text-muted)]">
             描述你想创作的歌曲，AI 会生成结构化歌词与风格标签。
           </p>
         </div>
@@ -80,7 +81,7 @@ export default function StudioPage() {
                 }
               }}
               placeholder="例：一首关于夏天的国风流行歌，钢琴伴奏，女声，治愈温暖"
-              className="w-full h-28 bg-[var(--surface)] border border-[var(--border)] rounded-lg p-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)]/50 resize-none focus:outline-none focus:border-[var(--accent)]"
+              className="field h-28 resize-none"
             />
           </div>
 
@@ -92,7 +93,7 @@ export default function StudioPage() {
               value={lyrics}
               onChange={(e) => setLyrics(e.target.value)}
               placeholder="粘贴已有歌词，AI 会自动添加结构标签并优化..."
-              className="w-full h-32 bg-[var(--surface)] border border-[var(--border)] rounded-lg p-3 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)]/50 resize-none focus:outline-none focus:border-[var(--accent)]"
+              className="field h-32 resize-none"
             />
           </div>
 
@@ -105,7 +106,7 @@ export default function StudioPage() {
           <button
             type="submit"
             disabled={loading || !prompt.trim()}
-            className="w-full py-2.5 rounded-lg bg-[var(--accent)] text-white text-sm font-medium disabled:opacity-40 hover:shadow-[0_0_24px_var(--accent-glow)] transition-shadow"
+            className="btn-primary w-full"
           >
             {loading ? (
               <span className="inline-flex items-center gap-2">
@@ -125,16 +126,19 @@ export default function StudioPage() {
 
       {/* Result Panel */}
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold">编排结果</h2>
+        <div>
+          <p className="eyebrow">Result</p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight">编排结果</h2>
+        </div>
 
         {!result && !loading && (
-          <div className="flex items-center justify-center h-64 text-sm text-[var(--text-muted)] border border-dashed border-[var(--border)] rounded-lg">
+          <div className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-[var(--border)] bg-white/[0.015] text-sm text-[var(--text-muted)]">
             等待输入
           </div>
         )}
 
         {loading && (
-          <div className="flex flex-col items-center justify-center h-64 gap-3 text-sm text-[var(--text-muted)] border border-dashed border-[var(--border)] rounded-lg">
+          <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--border)] bg-white/[0.015] text-sm text-[var(--text-muted)]">
             <span className="w-6 h-6 border-2 border-[var(--accent)]/30 border-t-[var(--accent)] rounded-full animate-spin" />
             DeepSeek 编排中...
           </div>
@@ -153,7 +157,7 @@ export default function StudioPage() {
             {/* Lyrics */}
             <div>
               <p className="text-xs text-[var(--text-muted)] mb-1.5">歌词</p>
-              <pre className="bg-[var(--surface)] border border-[var(--border)] rounded-lg p-3 text-sm whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto font-mono text-[var(--text)]">
+              <pre className="panel max-h-72 overflow-y-auto whitespace-pre-wrap p-4 font-mono text-sm leading-relaxed text-[var(--text)]">
                 {result.lyrics}
               </pre>
             </div>
@@ -195,7 +199,7 @@ export default function StudioPage() {
             {/* Style Prompt */}
             <div>
               <p className="text-xs text-[var(--text-muted)] mb-1">生成 Prompt</p>
-              <code className="block bg-[var(--surface)] border border-[var(--border)] rounded-lg p-2 text-xs text-[var(--text-muted)] break-all">
+              <code className="panel block break-all p-3 text-xs text-[var(--text-muted)]">
                 {result.style_prompt}
               </code>
             </div>
@@ -204,7 +208,7 @@ export default function StudioPage() {
             <div className="flex gap-2 pt-2">
               <button
                 onClick={handleGoCreate}
-                className="flex-1 py-2 rounded-lg bg-[var(--accent)] text-white text-sm font-medium hover:shadow-[0_0_24px_var(--accent-glow)] transition-shadow"
+                className="btn-primary flex-1"
               >
                 前往创作页面微调并生成
               </button>

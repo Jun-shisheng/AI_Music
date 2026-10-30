@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.db import SessionLocal
 from app.models import Job
 from app.schemas import GenerateRequest, GenerateResponse
+from app.services.acestep_runner import resolve_request
 from app.services.music_text import prepare_generation_lyrics
 from app.services.queue import enqueue
 
@@ -11,21 +12,27 @@ router = APIRouter(prefix="/generate", tags=["generate"])
 
 @router.post("", response_model=GenerateResponse, status_code=201)
 async def create_generation(req: GenerateRequest):
-    duration_seconds = req.duration_seconds
-    if duration_seconds is None and req.generation_type == "song":
-        duration_seconds = 210
-    lyrics = req.lyrics or ("[Instrumental]" if req.instrumental else "")
-    if not req.instrumental:
-        lyrics = prepare_generation_lyrics(lyrics)
-
+    # Store the resolved request, not the raw flags: a bgm_loop is always
+    # instrumental and loopable, and an sfx has a 10 s default. Keeping the raw
+    # values made /jobs and /library disagree with docs/api.md.
+    resolved = resolve_request(
+        req.generation_type,
+        req.instrumental,
+        req.duration_seconds,
+        req.loopable,
+    )
+    if resolved["instrumental"]:
+        lyrics = "[Instrumental]"
+    else:
+        lyrics = prepare_generation_lyrics(req.lyrics or "")
     job = Job(
         title=req.title,
         lyrics=lyrics,
         style_prompt=req.style_prompt,
-        instrumental=req.instrumental,
+        instrumental=resolved["instrumental"],
         generation_type=req.generation_type,
-        duration_seconds=duration_seconds,
-        loopable=req.loopable,
+        duration_seconds=resolved["duration_seconds"],
+        loopable=resolved["loopable"],
         variation_label=req.variation_label,
         status="queued",
     )
