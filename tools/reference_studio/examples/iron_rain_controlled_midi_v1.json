@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "status": "stale_after_2026-10-22_cleanup; rebuild vocal_manifest and target_metadata before reuse",
+  "tempo_bpm": 86,
+  "meter": "4/4",
+  "bars": 8,
+  "key": "D#m",
+  "chords": ["D#m", "B", "F#", "C#", "D#m", "B", "F#", "C#"],
+  "harmony_source": {
+    "path": "D:/Model/AI_Music/_archive/outputs_history/2026-10-16_epic_hook/candidates/04_iron_rain_20261016-150430/04_iron_rain_c2_artifacts/score.abc",
+    "sha256": "dd5bee89715eafae0648eae61e916b7d49cbb6d3e8cb8598d6ae456c90e64403",
+    "section": "chorus",
+    "occurrence": 1
+  },
+  "vocal_manifest": {
+    "path": "D:/Model/AI_Music/outputs/2026-10-19/experiments/voice/svs_comp_v4/manifest.json",
+    "sha256": "281107a4bd12494d3deb475f9b33c51c2e7404645dcc954dd5a85f5be64572ad",
+    "output": "vocals"
+  },
+  "target_metadata": [
+    {
+      "path": "D:/Model/AI_Music/data/voice_studio/jobs/relyric_chorus_svs_v3/target_metadata.json",
+      "sha256": "de22ebf4d628af775ac00e5118d23258724f2e0b2aa5a82a6244e9daf72a808f"
+    },
+    {
+      "path": "D:/Model/AI_Music/data/voice_studio/jobs/relyric_chorus_svs_v2/archived_target_metadata.json",
+      "sha256": "60ae8f3c68efd8de11f960b355e92ad675446c6ed2a7cf395aaca3f1d99b0f76"
+    }
+  ],
+  "notes": "Fixed comp v4 vocal (SHA 98438b5f1317890dfb803bd9c1fa8c66304ef73ba45c3388cfa1dea16f9551df); both variants retain exactly these bytes and start at tick 0. New four-line SVS target remains pending listening and diction review. Harmony is the first chorus's symbolic per-bar ABC marking, not a verified transcription of old backing audio. Existing Ins is resting; these MIDI parts are newly authored. Exact 32-quarter-beat grid is independent of the 22.326-second vocal container and any original-song audio alignment. No instrument render or mix is requested."
+}

@@ -3,7 +3,14 @@ setlocal enabledelayedexpansion
 
 title AI Music Studio
 
-set "ROOT=G:\AI_Music"
+set "ROOT=D:\Model\AI_Music"
+
+:: ACE-Step (port 8765) is only needed when GENERATION_BACKEND=acestep.
+:: The default backend is HeartMuLa, which loads its own model onto the GPU --
+:: running ACE-Step as well would make the two compete for 12 GB of VRAM.
+:: Set to 1 to start it anyway.
+set "START_ACESTEP=0"
+
 set "ACESTEP_DIR=%ROOT%\vendor\ACE-Step-1.5"
 set "ACESTEP_VENV=%ACESTEP_DIR%\.venv\Scripts\python.exe"
 set "CHECKPOINTS=%ACESTEP_DIR%\checkpoints"
@@ -20,11 +27,16 @@ echo.
 
 :: ---- Clean stale processes ----
 
-echo [Pre] Cleaning stale processes on ports 8765, 8000, 3000...
+echo [Pre] Cleaning stale processes on ports 8765, 8001, 3000...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8765.*LISTENING" 2^>nul') do taskkill /F /PID %%a 2>nul
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000.*LISTENING" 2^>nul') do taskkill /F /PID %%a 2>nul
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8001.*LISTENING" 2^>nul') do taskkill /F /PID %%a 2>nul
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000.*LISTENING" 2^>nul') do taskkill /F /PID %%a 2>nul
 echo [OK] Ports cleared.
+
+if "%START_ACESTEP%"=="0" (
+    echo [Skip] ACE-Step disabled ^(HeartMuLa backend^). Set START_ACESTEP=1 to enable.
+    goto :skip_acestep
+)
 
 :: ---- Apply patches to ACE-Step (one-time) ----
 
@@ -119,15 +131,17 @@ if %TRIES% lss 120 (
 echo [WARN] ACE-Step startup timeout, continuing anyway...
 :acestep_ready
 
-:: ---- Start FastAPI (port 8000) ----
+:skip_acestep
+
+:: ---- Start FastAPI (port 8001) ----
 
 echo.
-echo [2/3] Starting FastAPI backend (127.0.0.1:8000)...
+echo [1/2] Starting FastAPI backend (127.0.0.1:8001)...
 
 (
 echo @echo off
 echo cd /d "%ROOT%\services\api"
-echo "%API_PYTHON%" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+echo "%API_PYTHON%" -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
 echo if errorlevel 1 pause
 ) > "%TEMP%\fastapi_launcher.bat"
 start "FastAPI" "%TEMP%\fastapi_launcher.bat"
@@ -136,7 +150,7 @@ set "TRIES=0"
 :wait_fastapi
 timeout /t 2 /nobreak >nul
 set /a TRIES+=1
-powershell -Command "try { $r=Invoke-WebRequest -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 2 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
+powershell -Command "try { $r=Invoke-WebRequest -Uri 'http://127.0.0.1:8001/health' -TimeoutSec 2 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo [OK] FastAPI ready
     goto :fastapi_ready
@@ -148,7 +162,7 @@ echo [WARN] FastAPI startup timeout - starting anyway
 :: ---- Start Next.js (port 3000) ----
 
 echo.
-echo [3/3] Starting frontend (http://localhost:3000)...
+echo [2/2] Starting frontend (http://localhost:3000)...
 
 (
 echo @echo off
@@ -178,7 +192,7 @@ echo ============================================================
 echo   All services started!
 echo.
 echo   ACE-Step API    http://127.0.0.1:8765
-echo   FastAPI         http://127.0.0.1:8000/docs
+echo   FastAPI         http://127.0.0.1:8001/docs
 echo   Frontend        http://localhost:3000
 echo ============================================================
 echo.
